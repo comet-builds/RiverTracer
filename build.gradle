@@ -7,6 +7,7 @@ josm {
     josmCompileVersion = project.property('pluginMainVersion').toInteger()
     manifest {
         author = "comet"
+        canLoadAtRuntime = true
         description = "Semi-automatic river tracing based on imagery analysis."
         iconPath = "images/mapmode/river_icon.svg"
         minJosmVersion = project.property('pluginMainVersion').toInteger()
@@ -31,4 +32,8 @@ java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
     }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 11
 }
