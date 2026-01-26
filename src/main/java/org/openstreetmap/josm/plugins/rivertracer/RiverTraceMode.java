@@ -74,7 +74,9 @@ public class RiverTraceMode extends MapMode implements MouseMotionListener, MapV
     }
 
     @Override
-    public void mouseClicked(MouseEvent e) { }
+    public void mouseClicked(MouseEvent e) {
+        // No action needed for mouse click, as we handle interactions in mousePressed and mouseReleased
+    }
 
     @Override
     public void mousePressed(MouseEvent e) {

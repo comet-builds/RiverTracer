@@ -10,6 +10,9 @@ import org.openstreetmap.josm.tools.Logging;
  */
 public class ImageUtils {
 
+    private ImageUtils() {
+    }
+
     /**
      * Captures the current content of the MapView as a BufferedImage.
      * @param mv The MapView to capture.

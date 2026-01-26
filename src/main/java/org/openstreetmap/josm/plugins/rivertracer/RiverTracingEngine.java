@@ -66,55 +66,56 @@ public class RiverTracingEngine {
         if (!isValidPoint(start, width, height)) return path;
 
         int initialColor = img.getRGB(start.x, start.y);
-        int adaptiveTargetColor = initialColor;
-        Point current = start;
-        double smoothedAngle = startAngle;
-        double joinDistance = 1.5 * options.getStepSize();
+        TracingContext ctx = new TracingContext(start, startAngle, initialColor);
 
-        boolean searching = true;
-        while (searching) {
-            if (isAtEdge(current, width, height)) {
-                searching = false;
-                continue;
-            }
-
-            ScanResult res = performMultiStageScan(img, current, smoothedAngle, adaptiveTargetColor);
-            
-            if (res == null) {
-                searching = false;
-                continue;
-            }
-
-            Point centeredNext = adjustToCenter(img, res.point, res.angle, adaptiveTargetColor, width, height);
-
-            if (shouldStopAtAngle(path, current, centeredNext) || intersectsSelf(path, centeredNext)) {
-                searching = false;
-                continue;
-            }
-
-            JoinResult join = checkJoin(centeredNext, waterways, joinDistance);
-            if (join != null) {
-                path.add(join.point);
-                searching = false;
-                continue;
-            }
-
-            path.add(centeredNext);
-
-            double actualAngle = Math.atan2(centeredNext.y - current.y, centeredNext.x - current.x);
-            smoothedAngle = interpolateAngle(smoothedAngle, actualAngle, ANGLE_SMOOTHING_FACTOR);
-
-            current = centeredNext;
-            int newColor = img.getRGB(current.x, current.y);
-
-            if (colorDistance(initialColor, newColor) > options.getMaxJump()) {
-                searching = false;
-            } else {
-                adaptiveTargetColor = blendColors(adaptiveTargetColor, newColor, COLOR_ADAPTATION_RATE);
-            }
+        while (ctx.searching) {
+            processNextStep(ctx, img, path, waterways, width, height);
         }
 
         return path;
+    }
+
+    private void processNextStep(TracingContext ctx, BufferedImage img, List<Point> path, List<Line2D> waterways, int width, int height) {
+        if (isAtEdge(ctx.current, width, height)) {
+            ctx.searching = false;
+            return;
+        }
+
+        ScanResult res = performMultiStageScan(img, ctx.current, ctx.smoothedAngle, ctx.adaptiveTargetColor);
+
+        if (res == null) {
+            ctx.searching = false;
+            return;
+        }
+
+        Point centeredNext = adjustToCenter(img, res.point, res.angle, ctx.adaptiveTargetColor, width, height);
+
+        if (shouldStopAtAngle(path, ctx.current, centeredNext) || intersectsSelf(path, centeredNext)) {
+            ctx.searching = false;
+            return;
+        }
+
+        double joinDistance = 1.5 * options.getStepSize();
+        JoinResult join = checkJoin(centeredNext, waterways, joinDistance);
+        if (join != null) {
+            path.add(join.point);
+            ctx.searching = false;
+            return;
+        }
+
+        path.add(centeredNext);
+
+        double actualAngle = Math.atan2((double) centeredNext.y - ctx.current.y, (double) centeredNext.x - ctx.current.x);
+        ctx.smoothedAngle = interpolateAngle(ctx.smoothedAngle, actualAngle, ANGLE_SMOOTHING_FACTOR);
+
+        ctx.current = centeredNext;
+        int newColor = img.getRGB(ctx.current.x, ctx.current.y);
+
+        if (colorDistance(ctx.initialColor, newColor) > options.getMaxJump()) {
+            ctx.searching = false;
+        } else {
+            ctx.adaptiveTargetColor = blendColors(ctx.adaptiveTargetColor, newColor, COLOR_ADAPTATION_RATE);
+        }
     }
 
     private ScanResult performMultiStageScan(BufferedImage img, Point current, double angle, int targetColor) {
@@ -136,10 +137,10 @@ public class RiverTracingEngine {
     private boolean shouldStopAtAngle(List<Point> path, Point current, Point next) {
         if (path.size() < 2) return false;
         Point prev = path.get(path.size() - 2);
-        
-        double angle1 = Math.atan2(current.y - prev.y, current.x - prev.x);
-        double angle2 = Math.atan2(next.y - current.y, next.x - current.x);
-        
+
+        double angle1 = Math.atan2((double) current.y - prev.y, (double) current.x - prev.x);
+        double angle2 = Math.atan2((double) next.y - current.y, (double) next.x - current.x);
+
         double diff = angle2 - angle1;
         while (diff <= -Math.PI) diff += 2 * Math.PI;
         while (diff > Math.PI) diff -= 2 * Math.PI;
@@ -342,7 +343,7 @@ public class RiverTracingEngine {
         int dg = g1 - g2;
         int db = b1 - b2;
 
-        return Math.sqrt(dr * dr + dg * dg + db * db);
+        return Math.sqrt((double) dr * dr + (double) dg * dg + (double) db * db);
     }
 
     private static int blendColors(int rgb1, int rgb2, double ratio) {
@@ -376,6 +377,21 @@ public class RiverTracingEngine {
         JoinResult(Point p, double d) {
             this.point = p;
             this.dist = d;
+        }
+    }
+
+    private static class TracingContext {
+        Point current;
+        double smoothedAngle;
+        int adaptiveTargetColor;
+        boolean searching = true;
+        final int initialColor;
+
+        TracingContext(Point start, double startAngle, int startColor) {
+            this.current = start;
+            this.smoothedAngle = startAngle;
+            this.initialColor = startColor;
+            this.adaptiveTargetColor = startColor;
         }
     }
 }
