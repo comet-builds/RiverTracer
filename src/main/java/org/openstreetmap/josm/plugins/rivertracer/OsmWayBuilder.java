@@ -28,6 +28,7 @@ public class OsmWayBuilder {
 
     private static final double SNAP_DISTANCE_METERS = 15.0;
     private static final double SEARCH_PADDING_DEG = 0.001;
+    private static final String TAG_WATERWAY = "waterway";
 
     /**
      * Converts a list of screen points into an OSM way, snapping to existing water networks if possible.
@@ -58,7 +59,7 @@ public class OsmWayBuilder {
         w.setNodes(nodes);
 
         String waterwayType = options.isRiver() ? "river" : "stream";
-        w.put("waterway", waterwayType);
+        w.put(TAG_WATERWAY, waterwayType);
         if (options.isIntermittent()) {
             w.put("intermittent", "yes");
         }
@@ -106,12 +107,11 @@ public class OsmWayBuilder {
         double minDist = Double.MAX_VALUE;
 
         for (Node n : candidates) {
-            if (n.isDeleted()) continue;
-            
-            boolean isWaterway = n.getParentWays().stream()
-                .anyMatch(w -> !w.isDeleted() && w.hasKey("waterway"));
-                
-            if (!isWaterway) continue;
+            if (n.isDeleted()
+                    || n.getParentWays().stream()
+                            .noneMatch(w -> !w.isDeleted() && w.hasKey(TAG_WATERWAY))) {
+                continue;
+            }
 
             double dist = n.getCoor().greatCircleDistance(ll);
             if (dist < SNAP_DISTANCE_METERS && dist < minDist) {
@@ -136,7 +136,7 @@ public class OsmWayBuilder {
         double minDist = Double.MAX_VALUE;
 
         for (Way w : ways) {
-            if (w.isDeleted() || !w.hasKey("waterway")) continue;
+            if (w.isDeleted() || !w.hasKey(TAG_WATERWAY)) continue;
 
             for (int i = 0; i < w.getNodesCount() - 1; i++) {
                 Node n1 = w.getNode(i);
