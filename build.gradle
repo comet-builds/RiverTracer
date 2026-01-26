@@ -1,0 +1,34 @@
+plugins {
+    id 'java-library'
+    id 'org.openstreetmap.josm' version '0.8.2'
+}
+
+josm {
+    josmCompileVersion = project.property('pluginMainVersion').toInteger()
+    manifest {
+        author = "comet"
+        description = "Semi-automatic river tracing based on imagery analysis."
+        iconPath = "images/mapmode/river_icon.svg"
+        minJosmVersion = project.property('pluginMainVersion').toInteger()
+        mainClass = "org.openstreetmap.josm.plugins.rivertracer.RiverTracerPlugin"
+        website = new URL("https://github.com/comet-builds/RiverTracer")
+    }
+}
+
+version = project.property('pluginVersion')
+
+repositories {
+    mavenCentral()
+    maven {
+        url = "https://josm.openstreetmap.de/nexus/content/repositories/releases/"
+    }
+    maven {
+        url = "https://josm.openstreetmap.de/nexus/content/repositories/snapshots/"
+    }
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
