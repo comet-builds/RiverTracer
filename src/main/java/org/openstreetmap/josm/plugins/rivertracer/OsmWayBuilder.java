@@ -48,8 +48,8 @@ public class OsmWayBuilder {
             Point p = path.get(i);
             LatLon ll = mv.getLatLon(p.x, p.y);
 
-            if (i == path.size() - 1) {
-                handleLastPoint(ds, ll, nodes, cmds);
+            if (i == 0 || i == path.size() - 1) {
+                nodes.add(snapPoint(ds, ll, cmds));
             } else {
                 nodes.add(createNewNode(ds, ll, cmds));
             }
@@ -72,19 +72,18 @@ public class OsmWayBuilder {
         mv.repaint();
     }
 
-    private void handleLastPoint(DataSet ds, LatLon ll, List<Node> nodes, List<Command> cmds) {
+    private Node snapPoint(DataSet ds, LatLon ll, List<Command> cmds) {
         Node snapNode = findSnapNode(ds, ll);
         
         if (snapNode != null) {
-            nodes.add(snapNode);
-            return;
+            return snapNode;
         }
 
         Node segmentNode = snapToSegment(ds, ll, cmds);
         if (segmentNode != null) {
-            nodes.add(segmentNode);
+            return segmentNode;
         } else {
-            nodes.add(createNewNode(ds, ll, cmds));
+            return createNewNode(ds, ll, cmds);
         }
     }
 
