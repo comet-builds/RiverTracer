@@ -69,17 +69,22 @@ public class RiverTraceController {
     }
 
     private void performGhostTrace() {
-        if (lastMousePoint == null || lastMapView == null) return;
+        final Point capturedMousePoint = lastMousePoint;
+        final MapView capturedMapView = lastMapView;
 
-        executeTrace(lastMousePoint, lastMapView, (fullPath) -> {
+        if (capturedMousePoint == null || capturedMapView == null) return;
+
+        executeTrace(capturedMousePoint, capturedMapView, (fullPath) -> {
+            if (this.lastMapView != capturedMapView) return;
+
             synchronized(ghostPath) {
                 ghostPath.clear();
                 ghostPath.addAll(fullPath);
             }
-            lastMapView.repaint();
+            capturedMapView.repaint();
         });
     }
-
+    
     /**
      * Executes the final trace and adds the result to the JOSM dataset.
      */
