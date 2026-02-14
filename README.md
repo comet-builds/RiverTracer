@@ -8,9 +8,15 @@ RiverTracer is a JOSM plugin that helps map rivers by semi-automatically tracing
 
 ## Installation
 
+**Install via JOSM** (Recommended)
+1. Go to Preferences → Plugins in JOSM.
+2. Search for RiverTracer.
+3. Check the plugin in the list and click OK.
+
+**Manual Installation**
 1. Download the latest `RiverTracer.jar` from releases.
 2. Copy the file to your JOSM plugins directory.
-3. Enable the plugin in preferences if not automatically enabled.
+3. Enable the plugin in Preferences → Plugins in JOSM if not automatically enabled.
 
 ## Usage
 
