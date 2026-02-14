@@ -97,16 +97,21 @@ public class OsmWayBuilder {
             info.node = snapNode;
             // Check if this node is an endpoint of a waterway
             for (Way w : snapNode.getParentWays()) {
-                if (w.isDeleted() || !w.hasKey(TAG_WATERWAY)) continue;
+                if (!w.isDeleted() && w.hasKey(TAG_WATERWAY)) {
+                    boolean found = false;
+                    if (w.getNode(0) == snapNode) {
+                        info.way = w;
+                        info.isStart = true;
+                        found = true;
+                    } else if (w.getNode(w.getNodesCount() - 1) == snapNode) {
+                        info.way = w;
+                        info.isEnd = true;
+                        found = true;
+                    }
 
-                if (w.getNode(0) == snapNode) {
-                    info.way = w;
-                    info.isStart = true;
-                    break; // Prefer start/end
-                } else if (w.getNode(w.getNodesCount() - 1) == snapNode) {
-                    info.way = w;
-                    info.isEnd = true;
-                    break;
+                    if (found) {
+                        break; // Prefer start/end
+                    }
                 }
             }
         }
@@ -122,10 +127,7 @@ public class OsmWayBuilder {
         if (start.way == end.way) return false; // Don't merge a way to itself (loop)
 
         // Check for direction mismatch
-        if (start.isEnd && end.isStart) return true;
-        if (start.isStart && end.isEnd) return true;
-
-        return false;
+        return (start.isEnd && end.isStart) || (start.isStart && end.isEnd);
     }
 
     private void mergeOne(DataSet ds, ConnectionInfo conn, List<Point> path, MapView mv, List<Command> cmds, boolean isStartConn) {
@@ -176,7 +178,8 @@ public class OsmWayBuilder {
         // Generate nodes for the bridge.
         List<Node> bridgeNodes = generateSegmentNodes(ds, path, mv, cmds, start.node, end.node);
 
-        Way firstWay, secondWay;
+        Way firstWay;
+        Way secondWay;
         List<Node> midNodes;
 
         if (start.isEnd && end.isStart) {
@@ -188,7 +191,7 @@ public class OsmWayBuilder {
             finalNodes.addAll(midNodes);
             finalNodes.addAll(secondWay.getNodes());
 
-            applyMerge(ds, firstWay, secondWay, finalNodes, cmds);
+            applyMerge(firstWay, secondWay, finalNodes, cmds);
 
         } else {
             firstWay = end.way;
@@ -202,11 +205,11 @@ public class OsmWayBuilder {
             finalNodes.addAll(midNodes);
             finalNodes.addAll(secondWay.getNodes());
 
-            applyMerge(ds, firstWay, secondWay, finalNodes, cmds);
+            applyMerge(firstWay, secondWay, finalNodes, cmds);
         }
     }
 
-    private void applyMerge(DataSet ds, Way keepWay, Way deleteWay, List<Node> newNodes, List<Command> cmds) throws UserCancelException {
+    private void applyMerge(Way keepWay, Way deleteWay, List<Node> newNodes, List<Command> cmds) throws UserCancelException {
         // Handle Tag Conflicts
         List<Way> waysToMerge = new ArrayList<>();
         waysToMerge.add(keepWay);
