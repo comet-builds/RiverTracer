@@ -97,25 +97,27 @@ public class OsmWayBuilder {
             info.node = snapNode;
             // Check if this node is an endpoint of a waterway
             for (Way w : snapNode.getParentWays()) {
-                if (!w.isDeleted() && w.hasKey(TAG_WATERWAY)) {
-                    boolean found = false;
-                    if (w.getNode(0) == snapNode) {
-                        info.way = w;
-                        info.isStart = true;
-                        found = true;
-                    } else if (w.getNode(w.getNodesCount() - 1) == snapNode) {
-                        info.way = w;
-                        info.isEnd = true;
-                        found = true;
-                    }
-
-                    if (found) {
-                        break; // Prefer start/end
-                    }
+                if (updateConnectionInfo(info, w, snapNode)) {
+                    break;
                 }
             }
         }
         return info;
+    }
+
+    private boolean updateConnectionInfo(ConnectionInfo info, Way w, Node snapNode) {
+        if (!w.isDeleted() && w.hasKey(TAG_WATERWAY)) {
+            if (w.getNode(0) == snapNode) {
+                info.way = w;
+                info.isStart = true;
+                return true;
+            } else if (w.getNode(w.getNodesCount() - 1) == snapNode) {
+                info.way = w;
+                info.isEnd = true;
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean canMerge(ConnectionInfo info) {
