@@ -149,32 +149,33 @@ public class RiverTracingEngine {
     }
 
     private void smoothPath(List<Point> path, int iterations) {
-        if (path.size() < 3) return;
+        int n = path.size();
+        if (n < 3) return;
 
-        List<Point2D.Double> doublePath = new ArrayList<>(path.size());
-        for (Point p : path) {
-            doublePath.add(new Point2D.Double(p.x, p.y));
+        double[] x = new double[n];
+        double[] y = new double[n];
+        double[] nextX = new double[n];
+        double[] nextY = new double[n];
+
+        for (int i = 0; i < n; i++) {
+            Point p = path.get(i);
+            x[i] = p.x;
+            y[i] = p.y;
+            nextX[i] = p.x;
+            nextY[i] = p.y;
         }
 
         for (int iter = 0; iter < iterations; iter++) {
-            List<Point2D.Double> nextPath = new ArrayList<>(doublePath);
-
-            for (int i = 1; i < doublePath.size() - 1; i++) {
-                Point2D.Double pPrev = doublePath.get(i - 1);
-                Point2D.Double pCurr = doublePath.get(i);
-                Point2D.Double pNext = doublePath.get(i + 1);
-
-                double newX = (pPrev.x + 2.0 * pCurr.x + pNext.x) / 4.0;
-                double newY = (pPrev.y + 2.0 * pCurr.y + pNext.y) / 4.0;
-
-                nextPath.set(i, new Point2D.Double(newX, newY));
+            for (int i = 1; i < n - 1; i++) {
+                nextX[i] = (x[i - 1] + 2.0 * x[i] + x[i + 1]) / 4.0;
+                nextY[i] = (y[i - 1] + 2.0 * y[i] + y[i + 1]) / 4.0;
             }
-            doublePath = nextPath;
+            System.arraycopy(nextX, 0, x, 0, n);
+            System.arraycopy(nextY, 0, y, 0, n);
         }
 
-        for (int i = 0; i < path.size(); i++) {
-            Point2D.Double p = doublePath.get(i);
-            path.set(i, new Point((int) Math.round(p.x), (int) Math.round(p.y)));
+        for (int i = 0; i < n; i++) {
+            path.set(i, new Point((int) Math.round(x[i]), (int) Math.round(y[i])));
         }
     }
 
@@ -201,10 +202,9 @@ public class RiverTracingEngine {
     private JoinResult checkJoin(Point p, List<Line2D> waterways, double threshold) {
         JoinResult best = null;
         double minD = Double.MAX_VALUE;
-        Point2D.Double p2d = new Point2D.Double(p.x, p.y);
 
         for (Line2D l : waterways) {
-            double dist = l.ptSegDist(p2d);
+            double dist = l.ptSegDist(p.x, p.y);
             if (dist < threshold && dist < minD) {
                 minD = dist;
                 Point proj = getProjectedPoint(l, p);
