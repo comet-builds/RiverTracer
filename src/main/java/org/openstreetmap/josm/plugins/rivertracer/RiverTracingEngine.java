@@ -19,6 +19,15 @@ public class RiverTracingEngine {
     private static final double SCAN_ARC_GAP = Math.PI / 4.0;
     private static final double ANGLE_SMOOTHING_FACTOR = 0.3;
     private static final double COLOR_ADAPTATION_RATE = 0.05;
+    private static final double JOIN_DISTANCE_MULTIPLIER = 1.5;
+    private static final double SHARP_SCAN_TOLERANCE_MULTIPLIER = 1.3;
+    private static final double GAP_SCAN_STEP_MULTIPLIER = 2.5;
+    private static final double GAP_SCAN_TOLERANCE_MULTIPLIER = 1.5;
+    private static final double INITIAL_DIRECTION_ANGLE_STEP = Math.PI / 16.0;
+    private static final double SCAN_ANGLE_STEP = Math.PI / 32.0;
+    private static final double SCAN_ANGLE_PENALTY_WEIGHT = 10.0;
+    private static final int CENTER_ADJUST_SCAN_RANGE = 100;
+    private static final double COLOR_MATCH_TOLERANCE_MULTIPLIER = 1.1;
 
     private final RiverTracingOptions options;
 
@@ -95,7 +104,7 @@ public class RiverTracingEngine {
             return;
         }
 
-        double joinDistance = 1.5 * options.getStepSize();
+        double joinDistance = JOIN_DISTANCE_MULTIPLIER * options.getStepSize();
         JoinResult join = checkJoin(centeredNext, waterways, joinDistance);
         if (join != null) {
             path.add(join.point);
@@ -125,11 +134,11 @@ public class RiverTracingEngine {
         ScanResult res = scanSurroundings(img, current, angle, step, SCAN_ARC_STANDARD, targetColor, tol);
 
         if (res == null) {
-            res = scanSurroundings(img, current, angle, step, SCAN_ARC_SHARP, targetColor, tol * 1.3);
+            res = scanSurroundings(img, current, angle, step, SCAN_ARC_SHARP, targetColor, tol * SHARP_SCAN_TOLERANCE_MULTIPLIER);
         }
 
         if (res == null) {
-            res = scanSurroundings(img, current, angle, (int) (step * 2.5), SCAN_ARC_GAP, targetColor, tol * 1.5);
+            res = scanSurroundings(img, current, angle, (int) (step * GAP_SCAN_STEP_MULTIPLIER), SCAN_ARC_GAP, targetColor, tol * GAP_SCAN_TOLERANCE_MULTIPLIER);
         }
         return res;
     }
@@ -149,32 +158,33 @@ public class RiverTracingEngine {
     }
 
     private void smoothPath(List<Point> path, int iterations) {
-        if (path.size() < 3) return;
+        int n = path.size();
+        if (n < 3) return;
 
-        List<Point2D.Double> doublePath = new ArrayList<>(path.size());
-        for (Point p : path) {
-            doublePath.add(new Point2D.Double(p.x, p.y));
+        double[] x = new double[n];
+        double[] y = new double[n];
+        double[] nextX = new double[n];
+        double[] nextY = new double[n];
+
+        for (int i = 0; i < n; i++) {
+            Point p = path.get(i);
+            x[i] = p.x;
+            y[i] = p.y;
+            nextX[i] = p.x;
+            nextY[i] = p.y;
         }
 
         for (int iter = 0; iter < iterations; iter++) {
-            List<Point2D.Double> nextPath = new ArrayList<>(doublePath);
-
-            for (int i = 1; i < doublePath.size() - 1; i++) {
-                Point2D.Double pPrev = doublePath.get(i - 1);
-                Point2D.Double pCurr = doublePath.get(i);
-                Point2D.Double pNext = doublePath.get(i + 1);
-
-                double newX = (pPrev.x + 2.0 * pCurr.x + pNext.x) / 4.0;
-                double newY = (pPrev.y + 2.0 * pCurr.y + pNext.y) / 4.0;
-
-                nextPath.set(i, new Point2D.Double(newX, newY));
+            for (int i = 1; i < n - 1; i++) {
+                nextX[i] = (x[i - 1] + 2.0 * x[i] + x[i + 1]) / 4.0;
+                nextY[i] = (y[i - 1] + 2.0 * y[i] + y[i + 1]) / 4.0;
             }
-            doublePath = nextPath;
+            System.arraycopy(nextX, 0, x, 0, n);
+            System.arraycopy(nextY, 0, y, 0, n);
         }
 
-        for (int i = 0; i < path.size(); i++) {
-            Point2D.Double p = doublePath.get(i);
-            path.set(i, new Point((int) Math.round(p.x), (int) Math.round(p.y)));
+        for (int i = 0; i < n; i++) {
+            path.set(i, new Point((int) Math.round(x[i]), (int) Math.round(y[i])));
         }
     }
 
@@ -183,7 +193,7 @@ public class RiverTracingEngine {
         double minDiff = Double.MAX_VALUE;
         int stepSize = options.getStepSize();
 
-        for (double angle = 0; angle < 2 * Math.PI; angle += Math.PI / 16) {
+        for (double angle = 0; angle < 2 * Math.PI; angle += INITIAL_DIRECTION_ANGLE_STEP) {
             int nx = (int) (p.x + Math.cos(angle) * stepSize);
             int ny = (int) (p.y + Math.sin(angle) * stepSize);
 
@@ -201,10 +211,9 @@ public class RiverTracingEngine {
     private JoinResult checkJoin(Point p, List<Line2D> waterways, double threshold) {
         JoinResult best = null;
         double minD = Double.MAX_VALUE;
-        Point2D.Double p2d = new Point2D.Double(p.x, p.y);
 
         for (Line2D l : waterways) {
-            double dist = l.ptSegDist(p2d);
+            double dist = l.ptSegDist(p.x, p.y);
             if (dist < threshold && dist < minD) {
                 minD = dist;
                 Point proj = getProjectedPoint(l, p);
@@ -260,7 +269,7 @@ public class RiverTracingEngine {
         int w = img.getWidth();
         int h = img.getHeight();
 
-        for (double angle = baseAngle - scanArcRad; angle <= baseAngle + scanArcRad; angle += Math.PI / 32) {
+        for (double angle = baseAngle - scanArcRad; angle <= baseAngle + scanArcRad; angle += SCAN_ANGLE_STEP) {
             int nx = (int) (center.x + Math.cos(angle) * radius);
             int ny = (int) (center.y + Math.sin(angle) * radius);
 
@@ -268,7 +277,7 @@ public class RiverTracingEngine {
 
             int c = img.getRGB(nx, ny);
             double diff = colorDistance(targetColor, c);
-            double anglePenalty = Math.abs(angle - baseAngle) * 10.0;
+            double anglePenalty = Math.abs(angle - baseAngle) * SCAN_ANGLE_PENALTY_WEIGHT;
 
             if ((diff + anglePenalty) < minScore && diff < tolerance) {
                 minScore = diff + anglePenalty;
@@ -282,7 +291,7 @@ public class RiverTracingEngine {
 
     private Point adjustToCenter(BufferedImage img, Point p, double angle, int target, int w, int h) {
         double perpAngle = angle + Math.PI / 2;
-        int scanDist = 100;
+        int scanDist = CENTER_ADJUST_SCAN_RANGE;
         int leftLimit = 0;
         int rightLimit = 0;
 
@@ -320,7 +329,7 @@ public class RiverTracingEngine {
 
     private boolean isColorMatch(BufferedImage img, int x, int y, int target, int w, int h) {
         if (!isValidPoint(new Point(x, y), w, h)) return false;
-        return colorDistance(target, img.getRGB(x, y)) < (options.getColorTolerance() * 1.1);
+        return colorDistance(target, img.getRGB(x, y)) < (options.getColorTolerance() * COLOR_MATCH_TOLERANCE_MULTIPLIER);
     }
 
     private double interpolateAngle(double oldAngle, double newAngle, double factor) {

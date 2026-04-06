@@ -254,6 +254,15 @@ public class OsmWayBuilder {
 
     // --- Helper Methods ---
 
+    private BBox createSearchBox(LatLon ll) {
+        return new BBox(
+            ll.getX() - SEARCH_PADDING_DEG,
+            ll.getY() - SEARCH_PADDING_DEG,
+            ll.getX() + SEARCH_PADDING_DEG,
+            ll.getY() + SEARCH_PADDING_DEG
+        );
+    }
+
     private List<Node> generateSegmentNodes(DataSet ds, List<Point> path, MapView mv, List<Command> cmds, Node startNode, Node endNode) {
         List<Node> nodes = new ArrayList<>();
         nodes.add(startNode);
@@ -290,21 +299,26 @@ public class OsmWayBuilder {
     }
 
     private Node findSnapNode(DataSet ds, LatLon ll) {
-        BBox searchBox = new BBox(
-            ll.getX() - SEARCH_PADDING_DEG, 
-            ll.getY() - SEARCH_PADDING_DEG, 
-            ll.getX() + SEARCH_PADDING_DEG, 
-            ll.getY() + SEARCH_PADDING_DEG
-        );
+        BBox searchBox = createSearchBox(ll);
         Collection<Node> candidates = ds.searchNodes(searchBox);
 
         Node bestNode = null;
         double minDist = Double.MAX_VALUE;
 
         for (Node n : candidates) {
-            if (n.isDeleted()
-                    || n.getParentWays().stream()
-                            .noneMatch(w -> !w.isDeleted() && w.hasKey(TAG_WATERWAY))) {
+            if (n.isDeleted()) {
+                continue;
+            }
+
+            boolean hasValidParent = false;
+            for (Way w : n.getParentWays()) {
+                if (!w.isDeleted() && w.hasKey(TAG_WATERWAY)) {
+                    hasValidParent = true;
+                    break;
+                }
+            }
+
+            if (!hasValidParent) {
                 continue;
             }
 
@@ -318,12 +332,7 @@ public class OsmWayBuilder {
     }
 
     private Node snapToSegment(DataSet ds, LatLon ll, List<Command> cmds) {
-        BBox searchBox = new BBox(
-            ll.getX() - SEARCH_PADDING_DEG, 
-            ll.getY() - SEARCH_PADDING_DEG, 
-            ll.getX() + SEARCH_PADDING_DEG, 
-            ll.getY() + SEARCH_PADDING_DEG
-        );
+        BBox searchBox = createSearchBox(ll);
         Collection<Way> ways = ds.searchWays(searchBox);
 
         WaySegment bestSeg = null;
