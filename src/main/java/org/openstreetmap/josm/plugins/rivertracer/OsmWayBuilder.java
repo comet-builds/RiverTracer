@@ -134,41 +134,28 @@ public class OsmWayBuilder {
 
     private void mergeOne(DataSet ds, ConnectionInfo conn, List<Point> path, MapView mv, List<Command> cmds, boolean isStartConn) {
         Way targetWay = conn.way;
-        Node otherEndSnap = null;
 
-        if (isStartConn) {
-             LatLon ll = mv.getLatLon(path.get(path.size()-1).x, path.get(path.size()-1).y);
-             otherEndSnap = snapPoint(ds, ll, cmds);
-        } else {
-             LatLon ll = mv.getLatLon(path.get(0).x, path.get(0).y);
-             otherEndSnap = snapPoint(ds, ll, cmds);
-        }
+        int otherEndIndex = isStartConn ? path.size() - 1 : 0;
+        LatLon ll = mv.getLatLon(path.get(otherEndIndex).x, path.get(otherEndIndex).y);
+        Node otherEndSnap = snapPoint(ds, ll, cmds);
 
         List<Node> segmentNodes = generateSegmentNodes(ds, path, mv, cmds,
             isStartConn ? conn.node : otherEndSnap,
             isStartConn ? otherEndSnap : conn.node
         );
 
-        List<Node> finalNodes = new ArrayList<>(targetWay.getNodes());
+        List<Node> newNodes = new ArrayList<>(segmentNodes);
+        if (!isStartConn) {
+            Collections.reverse(newNodes);
+        }
+        newNodes.remove(0); // Remove the connection node
 
-        if (isStartConn) {
-            if (conn.isEnd) {
-                List<Node> toAppend = segmentNodes.subList(1, segmentNodes.size());
-                finalNodes.addAll(toAppend);
-            } else if (conn.isStart) {
-                List<Node> toPrepend = new ArrayList<>(segmentNodes.subList(1, segmentNodes.size()));
-                Collections.reverse(toPrepend);
-                finalNodes.addAll(0, toPrepend);
-            }
-        } else {
-            if (conn.isStart) {
-                List<Node> toPrepend = segmentNodes.subList(0, segmentNodes.size() - 1);
-                finalNodes.addAll(0, toPrepend);
-            } else if (conn.isEnd) {
-                List<Node> toAppend = new ArrayList<>(segmentNodes.subList(0, segmentNodes.size() - 1));
-                Collections.reverse(toAppend);
-                finalNodes.addAll(toAppend);
-            }
+        List<Node> finalNodes = new ArrayList<>(targetWay.getNodes());
+        if (conn.isStart) {
+            Collections.reverse(newNodes);
+            finalNodes.addAll(0, newNodes);
+        } else if (conn.isEnd) {
+            finalNodes.addAll(newNodes);
         }
 
         Way newWay = new Way(targetWay);
@@ -180,35 +167,21 @@ public class OsmWayBuilder {
         // Generate nodes for the bridge.
         List<Node> bridgeNodes = generateSegmentNodes(ds, path, mv, cmds, start.node, end.node);
 
-        Way firstWay;
-        Way secondWay;
-        List<Node> midNodes;
+        boolean isForward = start.isEnd && end.isStart;
+        Way firstWay = isForward ? start.way : end.way;
+        Way secondWay = isForward ? end.way : start.way;
 
-        if (start.isEnd && end.isStart) {
-            firstWay = start.way;
-            secondWay = end.way;
-            midNodes = bridgeNodes.subList(1, bridgeNodes.size() - 1);
-
-            List<Node> finalNodes = new ArrayList<>(firstWay.getNodes());
-            finalNodes.addAll(midNodes);
-            finalNodes.addAll(secondWay.getNodes());
-
-            applyMerge(firstWay, secondWay, finalNodes, cmds);
-
-        } else {
-            firstWay = end.way;
-            secondWay = start.way;
-
-            List<Node> reversedBridge = new ArrayList<>(bridgeNodes);
-            Collections.reverse(reversedBridge);
-            midNodes = reversedBridge.subList(1, reversedBridge.size() - 1);
-
-            List<Node> finalNodes = new ArrayList<>(firstWay.getNodes());
-            finalNodes.addAll(midNodes);
-            finalNodes.addAll(secondWay.getNodes());
-
-            applyMerge(firstWay, secondWay, finalNodes, cmds);
+        List<Node> midNodes = new ArrayList<>(bridgeNodes);
+        if (!isForward) {
+            Collections.reverse(midNodes);
         }
+        midNodes = midNodes.subList(1, midNodes.size() - 1);
+
+        List<Node> finalNodes = new ArrayList<>(firstWay.getNodes());
+        finalNodes.addAll(midNodes);
+        finalNodes.addAll(secondWay.getNodes());
+
+        applyMerge(firstWay, secondWay, finalNodes, cmds);
     }
 
     private void applyMerge(Way keepWay, Way deleteWay, List<Node> newNodes, List<Command> cmds) throws UserCancelException {
