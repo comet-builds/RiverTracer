@@ -44,6 +44,15 @@ public class RiverTracerSidebar extends ToggleDialog {
 
         RiverTracingOptions options = preferences.getOptions();
 
+        addStepSizeSlider(panel, options);
+        addColorToleranceSlider(panel, options);
+        addMaxJumpSlider(panel, options);
+        addMaxAngleSlider(panel, options);
+        addSmoothingSlider(panel, options);
+        addTaggingControls(panel, options);
+    }
+
+    private void addStepSizeSlider(JPanel panel, RiverTracingOptions options) {
         addSlider(panel, tr("Step Size"), 
             RiverTracingOptions.MIN_STEP_SIZE, 
             RiverTracingOptions.MAX_STEP_SIZE, 
@@ -54,7 +63,9 @@ public class RiverTracerSidebar extends ToggleDialog {
                 opts.setStepSize(val);
                 preferences.saveOptions(opts);
             });
+    }
 
+    private void addColorToleranceSlider(JPanel panel, RiverTracingOptions options) {
         addSlider(panel, tr("Color Tolerance"), 
             (int)RiverTracingOptions.MIN_COLOR_TOLERANCE, 
             (int)RiverTracingOptions.MAX_COLOR_TOLERANCE, 
@@ -65,7 +76,9 @@ public class RiverTracerSidebar extends ToggleDialog {
                 opts.setColorTolerance(val);
                 preferences.saveOptions(opts);
             });
+    }
 
+    private void addMaxJumpSlider(JPanel panel, RiverTracingOptions options) {
         addSlider(panel, tr("Max Jump"), 
             (int)RiverTracingOptions.MIN_MAX_JUMP, 
             (int)RiverTracingOptions.MAX_MAX_JUMP, 
@@ -76,7 +89,9 @@ public class RiverTracerSidebar extends ToggleDialog {
                 opts.setMaxJump(val);
                 preferences.saveOptions(opts);
             });
+    }
 
+    private void addMaxAngleSlider(JPanel panel, RiverTracingOptions options) {
         addSlider(panel, tr("Max Angle"), 
             (int)RiverTracingOptions.MIN_MAX_ANGLE, 
             (int)RiverTracingOptions.MAX_MAX_ANGLE, 
@@ -87,7 +102,9 @@ public class RiverTracerSidebar extends ToggleDialog {
                 opts.setMaxAngle(val);
                 preferences.saveOptions(opts);
             });
+    }
 
+    private void addSmoothingSlider(JPanel panel, RiverTracingOptions options) {
         addSlider(panel, tr("Smoothing"), 
             RiverTracingOptions.MIN_SMOOTHNESS, 
             RiverTracingOptions.MAX_SMOOTHNESS, 
@@ -98,8 +115,6 @@ public class RiverTracerSidebar extends ToggleDialog {
                 opts.setSmoothness(val);
                 preferences.saveOptions(opts);
             });
-
-        addTaggingControls(panel, options);
     }
 
     private void addTaggingControls(JPanel panel, RiverTracingOptions options) {
