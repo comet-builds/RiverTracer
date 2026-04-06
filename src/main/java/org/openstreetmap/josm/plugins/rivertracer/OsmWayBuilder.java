@@ -279,26 +279,22 @@ public class OsmWayBuilder {
         double minDist = Double.MAX_VALUE;
 
         for (Node n : candidates) {
-            if (n.isDeleted()) {
-                continue;
-            }
-
-            boolean hasValidParent = false;
-            for (Way w : n.getParentWays()) {
-                if (!w.isDeleted() && w.hasKey(TAG_WATERWAY)) {
-                    hasValidParent = true;
-                    break;
+            if (!n.isDeleted()) {
+                boolean hasValidParent = false;
+                for (Way w : n.getParentWays()) {
+                    if (!w.isDeleted() && w.hasKey(TAG_WATERWAY)) {
+                        hasValidParent = true;
+                        break;
+                    }
                 }
-            }
 
-            if (!hasValidParent) {
-                continue;
-            }
-
-            double dist = n.getCoor().greatCircleDistance(ll);
-            if (dist < SNAP_DISTANCE_METERS && dist < minDist) {
-                minDist = dist;
-                bestNode = n;
+                if (hasValidParent) {
+                    double dist = n.getCoor().greatCircleDistance(ll);
+                    if (dist < SNAP_DISTANCE_METERS && dist < minDist) {
+                        minDist = dist;
+                        bestNode = n;
+                    }
+                }
             }
         }
         return bestNode;
