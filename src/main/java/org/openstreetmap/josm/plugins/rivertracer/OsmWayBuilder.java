@@ -302,9 +302,19 @@ public class OsmWayBuilder {
         double minDist = Double.MAX_VALUE;
 
         for (Node n : candidates) {
-            if (n.isDeleted()
-                    || n.getParentWays().stream()
-                            .noneMatch(w -> !w.isDeleted() && w.hasKey(TAG_WATERWAY))) {
+            if (n.isDeleted()) {
+                continue;
+            }
+
+            boolean hasValidParent = false;
+            for (Way w : n.getParentWays()) {
+                if (!w.isDeleted() && w.hasKey(TAG_WATERWAY)) {
+                    hasValidParent = true;
+                    break;
+                }
+            }
+
+            if (!hasValidParent) {
                 continue;
             }
 
