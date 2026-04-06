@@ -179,8 +179,13 @@ public class RiverTracingEngine {
                 nextX[i] = (x[i - 1] + 2.0 * x[i] + x[i + 1]) / 4.0;
                 nextY[i] = (y[i - 1] + 2.0 * y[i] + y[i + 1]) / 4.0;
             }
-            System.arraycopy(nextX, 0, x, 0, n);
-            System.arraycopy(nextY, 0, y, 0, n);
+            double[] tempX = x;
+            x = nextX;
+            nextX = tempX;
+
+            double[] tempY = y;
+            y = nextY;
+            nextY = tempY;
         }
 
         for (int i = 0; i < n; i++) {
