@@ -271,6 +271,15 @@ public class OsmWayBuilder {
         return n;
     }
 
+    private boolean hasValidWaterwayParent(Node n) {
+        for (Way w : n.getParentWays()) {
+            if (!w.isDeleted() && w.hasKey(TAG_WATERWAY)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private Node findSnapNode(DataSet ds, LatLon ll) {
         BBox searchBox = createSearchBox(ll);
         Collection<Node> candidates = ds.searchNodes(searchBox);
@@ -279,26 +288,12 @@ public class OsmWayBuilder {
         double minDist = Double.MAX_VALUE;
 
         for (Node n : candidates) {
-            if (n.isDeleted()) {
-                continue;
-            }
-
-            boolean hasValidParent = false;
-            for (Way w : n.getParentWays()) {
-                if (!w.isDeleted() && w.hasKey(TAG_WATERWAY)) {
-                    hasValidParent = true;
-                    break;
+            if (!n.isDeleted() && hasValidWaterwayParent(n)) {
+                double dist = n.getCoor().greatCircleDistance(ll);
+                if (dist < SNAP_DISTANCE_METERS && dist < minDist) {
+                    minDist = dist;
+                    bestNode = n;
                 }
-            }
-
-            if (!hasValidParent) {
-                continue;
-            }
-
-            double dist = n.getCoor().greatCircleDistance(ll);
-            if (dist < SNAP_DISTANCE_METERS && dist < minDist) {
-                minDist = dist;
-                bestNode = n;
             }
         }
         return bestNode;

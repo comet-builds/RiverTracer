@@ -2,7 +2,6 @@ package org.openstreetmap.josm.plugins.rivertracer;
 
 import java.awt.Point;
 import java.awt.geom.Line2D;
-import java.awt.geom.Point2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -259,13 +258,10 @@ public class RiverTracingEngine {
 
             int pMinX = Math.min(p1.x, p2.x);
             int pMaxX = Math.max(p1.x, p2.x);
-            if (maxX < pMinX || minX > pMaxX) continue;
-
             int pMinY = Math.min(p1.y, p2.y);
             int pMaxY = Math.max(p1.y, p2.y);
-            if (maxY < pMinY || minY > pMaxY) continue;
 
-            if (Line2D.linesIntersect(p1.x, p1.y, p2.x, p2.y, current.x, current.y, next.x, next.y)) {
+            if (!(maxX < pMinX || minX > pMaxX) && !(maxY < pMinY || minY > pMaxY) && Line2D.linesIntersect(p1.x, p1.y, p2.x, p2.y, current.x, current.y, next.x, next.y)) {
                 return true;
             }
         }
