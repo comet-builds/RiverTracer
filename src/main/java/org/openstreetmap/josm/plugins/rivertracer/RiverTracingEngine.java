@@ -261,10 +261,8 @@ public class RiverTracingEngine {
             int pMinY = Math.min(p1.y, p2.y);
             int pMaxY = Math.max(p1.y, p2.y);
 
-            if (!(maxX < pMinX || minX > pMaxX) && !(maxY < pMinY || minY > pMaxY)) {
-                if (Line2D.linesIntersect(p1.x, p1.y, p2.x, p2.y, current.x, current.y, next.x, next.y)) {
-                    return true;
-                }
+            if (!(maxX < pMinX || minX > pMaxX) && !(maxY < pMinY || minY > pMaxY) && Line2D.linesIntersect(p1.x, p1.y, p2.x, p2.y, current.x, current.y, next.x, next.y)) {
+                return true;
             }
         }
         return false;
