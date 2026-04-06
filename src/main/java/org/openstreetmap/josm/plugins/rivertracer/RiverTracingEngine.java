@@ -248,9 +248,22 @@ public class RiverTracingEngine {
         if (path.isEmpty()) return false;
         Point current = path.get(path.size() - 1);
 
+        int minX = Math.min(current.x, next.x);
+        int maxX = Math.max(current.x, next.x);
+        int minY = Math.min(current.y, next.y);
+        int maxY = Math.max(current.y, next.y);
+
         for (int i = 0; i < path.size() - 2; i++) {
             Point p1 = path.get(i);
             Point p2 = path.get(i + 1);
+
+            int pMinX = Math.min(p1.x, p2.x);
+            int pMaxX = Math.max(p1.x, p2.x);
+            if (maxX < pMinX || minX > pMaxX) continue;
+
+            int pMinY = Math.min(p1.y, p2.y);
+            int pMaxY = Math.max(p1.y, p2.y);
+            if (maxY < pMinY || minY > pMaxY) continue;
 
             if (Line2D.linesIntersect(p1.x, p1.y, p2.x, p2.y, current.x, current.y, next.x, next.y)) {
                 return true;
