@@ -33,7 +33,6 @@ public class RiverTraceController {
     private BufferedImage cachedSnapshot;
     private EastNorth cachedCenter;
     private double cachedScale;
-    private List<Line2D> cachedWaterways;
     
     private Point lastMousePoint;
     private MapView lastMapView;
@@ -132,15 +131,10 @@ public class RiverTraceController {
             cachedSnapshot = ImageUtils.getMapSnapshot(mv);
             cachedCenter = currentCenter;
             cachedScale = currentScale;
-            cachedWaterways = null;
         }
     }
 
     private List<Line2D> getWaterwaySegments(MapView mv) {
-        if (cachedWaterways != null) {
-            return cachedWaterways;
-        }
-
         List<Line2D> segments = new ArrayList<>();
         DataSet ds = MainApplication.getLayerManager().getEditDataSet();
         if (ds == null) return segments;
@@ -164,7 +158,6 @@ public class RiverTraceController {
                 segments.add(new Line2D.Float(p1, p2));
             }
         }
-        cachedWaterways = segments;
         return segments;
     }
 }
