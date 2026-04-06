@@ -19,6 +19,15 @@ public class RiverTracingEngine {
     private static final double SCAN_ARC_GAP = Math.PI / 4.0;
     private static final double ANGLE_SMOOTHING_FACTOR = 0.3;
     private static final double COLOR_ADAPTATION_RATE = 0.05;
+    private static final double JOIN_DISTANCE_MULTIPLIER = 1.5;
+    private static final double SHARP_SCAN_TOLERANCE_MULTIPLIER = 1.3;
+    private static final double GAP_SCAN_STEP_MULTIPLIER = 2.5;
+    private static final double GAP_SCAN_TOLERANCE_MULTIPLIER = 1.5;
+    private static final double INITIAL_DIRECTION_ANGLE_STEP = Math.PI / 16.0;
+    private static final double SCAN_ANGLE_STEP = Math.PI / 32.0;
+    private static final double SCAN_ANGLE_PENALTY_WEIGHT = 10.0;
+    private static final int CENTER_ADJUST_SCAN_RANGE = 100;
+    private static final double COLOR_MATCH_TOLERANCE_MULTIPLIER = 1.1;
 
     private final RiverTracingOptions options;
 
@@ -95,7 +104,7 @@ public class RiverTracingEngine {
             return;
         }
 
-        double joinDistance = 1.5 * options.getStepSize();
+        double joinDistance = JOIN_DISTANCE_MULTIPLIER * options.getStepSize();
         JoinResult join = checkJoin(centeredNext, waterways, joinDistance);
         if (join != null) {
             path.add(join.point);
@@ -125,11 +134,11 @@ public class RiverTracingEngine {
         ScanResult res = scanSurroundings(img, current, angle, step, SCAN_ARC_STANDARD, targetColor, tol);
 
         if (res == null) {
-            res = scanSurroundings(img, current, angle, step, SCAN_ARC_SHARP, targetColor, tol * 1.3);
+            res = scanSurroundings(img, current, angle, step, SCAN_ARC_SHARP, targetColor, tol * SHARP_SCAN_TOLERANCE_MULTIPLIER);
         }
 
         if (res == null) {
-            res = scanSurroundings(img, current, angle, (int) (step * 2.5), SCAN_ARC_GAP, targetColor, tol * 1.5);
+            res = scanSurroundings(img, current, angle, (int) (step * GAP_SCAN_STEP_MULTIPLIER), SCAN_ARC_GAP, targetColor, tol * GAP_SCAN_TOLERANCE_MULTIPLIER);
         }
         return res;
     }
@@ -183,7 +192,7 @@ public class RiverTracingEngine {
         double minDiff = Double.MAX_VALUE;
         int stepSize = options.getStepSize();
 
-        for (double angle = 0; angle < 2 * Math.PI; angle += Math.PI / 16) {
+        for (double angle = 0; angle < 2 * Math.PI; angle += INITIAL_DIRECTION_ANGLE_STEP) {
             int nx = (int) (p.x + Math.cos(angle) * stepSize);
             int ny = (int) (p.y + Math.sin(angle) * stepSize);
 
@@ -260,7 +269,7 @@ public class RiverTracingEngine {
         int w = img.getWidth();
         int h = img.getHeight();
 
-        for (double angle = baseAngle - scanArcRad; angle <= baseAngle + scanArcRad; angle += Math.PI / 32) {
+        for (double angle = baseAngle - scanArcRad; angle <= baseAngle + scanArcRad; angle += SCAN_ANGLE_STEP) {
             int nx = (int) (center.x + Math.cos(angle) * radius);
             int ny = (int) (center.y + Math.sin(angle) * radius);
 
@@ -268,7 +277,7 @@ public class RiverTracingEngine {
 
             int c = img.getRGB(nx, ny);
             double diff = colorDistance(targetColor, c);
-            double anglePenalty = Math.abs(angle - baseAngle) * 10.0;
+            double anglePenalty = Math.abs(angle - baseAngle) * SCAN_ANGLE_PENALTY_WEIGHT;
 
             if ((diff + anglePenalty) < minScore && diff < tolerance) {
                 minScore = diff + anglePenalty;
@@ -282,7 +291,7 @@ public class RiverTracingEngine {
 
     private Point adjustToCenter(BufferedImage img, Point p, double angle, int target, int w, int h) {
         double perpAngle = angle + Math.PI / 2;
-        int scanDist = 100;
+        int scanDist = CENTER_ADJUST_SCAN_RANGE;
         int leftLimit = 0;
         int rightLimit = 0;
 
@@ -320,7 +329,7 @@ public class RiverTracingEngine {
 
     private boolean isColorMatch(BufferedImage img, int x, int y, int target, int w, int h) {
         if (!isValidPoint(new Point(x, y), w, h)) return false;
-        return colorDistance(target, img.getRGB(x, y)) < (options.getColorTolerance() * 1.1);
+        return colorDistance(target, img.getRGB(x, y)) < (options.getColorTolerance() * COLOR_MATCH_TOLERANCE_MULTIPLIER);
     }
 
     private double interpolateAngle(double oldAngle, double newAngle, double factor) {
