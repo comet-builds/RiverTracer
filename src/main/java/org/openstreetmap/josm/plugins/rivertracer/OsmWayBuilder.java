@@ -85,7 +85,7 @@ public class OsmWayBuilder {
         } catch (UserCancelException e) {
             // User cancelled the conflict dialog, abort operation
         } catch (Exception e) {
-            Logging.error("An unexpected error occurred while building the OSM way: " + e.getMessage());
+            Logging.error("Error building OSM way: " + e.getMessage());
         }
     }
 
@@ -316,7 +316,21 @@ public class OsmWayBuilder {
 
                 if (n1.isDeleted() || n2.isDeleted()) continue;
 
-                LatLon proj = getClosestPointOnSegment(n1.getCoor(), n2.getCoor(), ll);
+                LatLon c1 = n1.getCoor();
+                LatLon c2 = n2.getCoor();
+
+                // Bounding box check for the segment
+                double segMinLat = Math.min(c1.lat(), c2.lat());
+                double segMaxLat = Math.max(c1.lat(), c2.lat());
+                double segMinLon = Math.min(c1.lon(), c2.lon());
+                double segMaxLon = Math.max(c1.lon(), c2.lon());
+
+                if (segMaxLat < ll.lat() - SEARCH_PADDING_DEG || segMinLat > ll.lat() + SEARCH_PADDING_DEG ||
+                    segMaxLon < ll.lon() - SEARCH_PADDING_DEG || segMinLon > ll.lon() + SEARCH_PADDING_DEG) {
+                    continue;
+                }
+
+                LatLon proj = getClosestPointOnSegment(c1, c2, ll);
                 double dist = proj.greatCircleDistance(ll);
 
                 if (dist < SNAP_DISTANCE_METERS && dist < minDist) {

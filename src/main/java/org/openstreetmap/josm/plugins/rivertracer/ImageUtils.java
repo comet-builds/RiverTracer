@@ -27,7 +27,7 @@ public class ImageUtils {
             g.dispose();
             return img;
         } catch (Exception ex) {
-            Logging.error("An unexpected error occurred while capturing the map image: " + ex.getMessage());
+            Logging.error("Failed to capture map snapshot: " + ex.getMessage());
             return null;
         }
     }
