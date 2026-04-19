@@ -85,7 +85,7 @@ public class OsmWayBuilder {
         } catch (UserCancelException e) {
             // User cancelled the conflict dialog, abort operation
         } catch (Exception e) {
-            Logging.error(e);
+            Logging.error("Error building OSM way: " + e.getMessage());
         }
     }
 
