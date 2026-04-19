@@ -139,7 +139,7 @@ public class RiverTraceMode extends MapMode implements MouseMotionListener, MapV
 
             controller.startTrace(e.getPoint(), MainApplication.getMap().mapView);
         } catch (Exception ex) {
-            Logging.error(ex);
+            Logging.error("An unexpected error occurred during river trace mode operation: " + ex.getMessage());
         }
     }
 

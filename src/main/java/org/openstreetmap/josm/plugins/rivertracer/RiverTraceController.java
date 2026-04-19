@@ -118,7 +118,7 @@ public class RiverTraceController {
                     onSuccess.accept(fullPath);
                 });
             } catch (Exception e) {
-                Logging.error(e);
+                Logging.error("An unexpected error occurred during river trace execution: " + e.getMessage());
             }
         }).start();
     }
