@@ -215,18 +215,20 @@ public class RiverTracingEngine {
         double minD = Double.MAX_VALUE;
 
         for (Line2D l : waterways) {
-            Point p1 = new Point((int)l.getX1(), (int)l.getY1());
-            Point p2 = new Point((int)l.getX2(), (int)l.getY2());
+            int x1 = (int)l.getX1();
+            int y1 = (int)l.getY1();
+            int x2 = (int)l.getX2();
+            int y2 = (int)l.getY2();
 
-            double d1 = p1.distance(p);
+            double d1 = Point.distance(x1, y1, p.x, p.y);
             if (d1 < threshold && d1 < minD) {
                 minD = d1;
-                best = new JoinResult(p1, d1);
+                best = new JoinResult(new Point(x1, y1), d1);
             }
-            double d2 = p2.distance(p);
+            double d2 = Point.distance(x2, y2, p.x, p.y);
             if (d2 < threshold && d2 < minD) {
                 minD = d2;
-                best = new JoinResult(p2, d2);
+                best = new JoinResult(new Point(x2, y2), d2);
             }
         }
 
