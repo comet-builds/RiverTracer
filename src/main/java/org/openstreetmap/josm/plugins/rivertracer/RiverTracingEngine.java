@@ -71,7 +71,7 @@ public class RiverTracingEngine {
         int width = img.getWidth();
         int height = img.getHeight();
 
-        if (!isValidPoint(start, width, height)) return path;
+        if (!isValidPoint(start.x, start.y, width, height)) return path;
 
         int initialColor = img.getRGB(start.x, start.y);
         TracingContext ctx = new TracingContext(start, startAngle, initialColor);
@@ -196,12 +196,14 @@ public class RiverTracingEngine {
         double bestAngle = 0;
         double minDiff = Double.MAX_VALUE;
         int stepSize = options.getStepSize();
+        int w = img.getWidth();
+        int h = img.getHeight();
 
         for (double angle = 0; angle < 2 * Math.PI; angle += INITIAL_DIRECTION_ANGLE_STEP) {
             int nx = (int) (p.x + Math.cos(angle) * stepSize);
             int ny = (int) (p.y + Math.sin(angle) * stepSize);
 
-            if (!isValidPoint(new Point(nx, ny), img.getWidth(), img.getHeight())) continue;
+            if (!isValidPoint(nx, ny, w, h)) continue;
 
             double diff = colorDistance(target, img.getRGB(nx, ny));
             if (diff < minDiff) {
@@ -217,18 +219,20 @@ public class RiverTracingEngine {
         double minD = Double.MAX_VALUE;
 
         for (Line2D l : waterways) {
-            Point p1 = new Point((int)l.getX1(), (int)l.getY1());
-            Point p2 = new Point((int)l.getX2(), (int)l.getY2());
-
-            double d1 = p1.distance(p);
+            int x1 = (int) l.getX1();
+            int y1 = (int) l.getY1();
+            double d1 = p.distance(x1, y1);
             if (d1 < threshold && d1 < minD) {
                 minD = d1;
-                best = new JoinResult(p1, d1);
+                best = new JoinResult(new Point(x1, y1), d1);
             }
-            double d2 = p2.distance(p);
+
+            int x2 = (int) l.getX2();
+            int y2 = (int) l.getY2();
+            double d2 = p.distance(x2, y2);
             if (d2 < threshold && d2 < minD) {
                 minD = d2;
-                best = new JoinResult(p2, d2);
+                best = new JoinResult(new Point(x2, y2), d2);
             }
         }
 
@@ -288,8 +292,8 @@ public class RiverTracingEngine {
         return false;
     }
 
-    private boolean isValidPoint(Point p, int w, int h) {
-        return p.x >= 0 && p.y >= 0 && p.x < w && p.y < h;
+    private boolean isValidPoint(int x, int y, int w, int h) {
+        return x >= 0 && y >= 0 && x < w && y < h;
     }
 
     private boolean isAtEdge(Point p, int w, int h) {
@@ -307,7 +311,7 @@ public class RiverTracingEngine {
             int nx = (int) (center.x + Math.cos(angle) * radius);
             int ny = (int) (center.y + Math.sin(angle) * radius);
 
-            if (!isValidPoint(new Point(nx, ny), w, h)) continue;
+            if (!isValidPoint(nx, ny, w, h)) continue;
 
             int c = img.getRGB(nx, ny);
             double diff = colorDistance(targetColor, c);
@@ -362,7 +366,7 @@ public class RiverTracingEngine {
     }
 
     private boolean isColorMatch(BufferedImage img, int x, int y, int target, int w, int h) {
-        if (!isValidPoint(new Point(x, y), w, h)) return false;
+        if (!isValidPoint(x, y, w, h)) return false;
         return colorDistance(target, img.getRGB(x, y)) < (options.getColorTolerance() * COLOR_MATCH_TOLERANCE_MULTIPLIER);
     }
 
