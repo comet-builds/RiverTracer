@@ -4,7 +4,6 @@ import java.awt.Point;
 import java.awt.geom.Line2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -49,8 +48,10 @@ public class RiverTracingEngine {
         List<Point> forwardPath = findPath(snapshot, start, primaryAngle, existingWaterways);
         List<Point> backwardPath = findPath(snapshot, start, primaryAngle + Math.PI, existingWaterways);
 
-        List<Point> fullPath = new ArrayList<>(backwardPath);
-        Collections.reverse(fullPath);
+        List<Point> fullPath = new ArrayList<>(backwardPath.size() + Math.max(0, forwardPath.size() - 1));
+        for (int i = backwardPath.size() - 1; i >= 0; i--) {
+            fullPath.add(backwardPath.get(i));
+        }
 
         if (!forwardPath.isEmpty()) {
             forwardPath.remove(0);
