@@ -210,8 +210,8 @@ public class RiverTracingEngine {
         for (Line2D l : waterways) {
             int x1 = (int) l.getX1();
             int y1 = (int) l.getY1();
-            double dx1 = x1 - p.x;
-            double dy1 = y1 - p.y;
+            double dx1 = (double) x1 - p.x;
+            double dy1 = (double) y1 - p.y;
             double d1Sq = dx1 * dx1 + dy1 * dy1;
             if (d1Sq < minEndDSq) {
                 minEndDSq = d1Sq;
@@ -220,8 +220,8 @@ public class RiverTracingEngine {
 
             int x2 = (int) l.getX2();
             int y2 = (int) l.getY2();
-            double dx2 = x2 - p.x;
-            double dy2 = y2 - p.y;
+            double dx2 = (double) x2 - p.x;
+            double dy2 = (double) y2 - p.y;
             double d2Sq = dx2 * dx2 + dy2 * dy2;
             if (d2Sq < minEndDSq) {
                 minEndDSq = d2Sq;
