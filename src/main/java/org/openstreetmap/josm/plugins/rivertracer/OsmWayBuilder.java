@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 import org.openstreetmap.josm.command.AddCommand;
 import org.openstreetmap.josm.command.ChangeCommand;
@@ -93,23 +94,20 @@ public class OsmWayBuilder {
         ConnectionInfo info = new ConnectionInfo();
         info.node = findSnapNode(ds, ll);
 
-        if (info.node == null) return info;
+        if (info.node != null) {
+            Optional<Way> foundWay = info.node.getParentWays().stream()
+                .filter(w -> !w.isDeleted() && w.hasKey(TAG_WATERWAY))
+                .filter(w -> w.getNode(0) == info.node || w.getNode(w.getNodesCount() - 1) == info.node)
+                .findFirst();
 
-        // Check if this node is an endpoint of a waterway
-        for (Way w : info.node.getParentWays()) {
-            if (w.isDeleted() || !w.hasKey(TAG_WATERWAY)) continue;
-
-            if (w.getNode(0) == info.node) {
+            foundWay.ifPresent(w -> {
                 info.way = w;
-                info.isStart = true;
-                break;
-            }
-
-            if (w.getNode(w.getNodesCount() - 1) == info.node) {
-                info.way = w;
-                info.isEnd = true;
-                break;
-            }
+                if (w.getNode(0) == info.node) {
+                    info.isStart = true;
+                } else {
+                    info.isEnd = true;
+                }
+            });
         }
         return info;
     }
