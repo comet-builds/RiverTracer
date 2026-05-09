@@ -108,7 +108,8 @@ public class RiverTracingEngine {
         ctx.current = centeredNext;
         int newColor = img.getRGB(ctx.current.x, ctx.current.y);
 
-        if (colorDistance(ctx.initialColor, newColor) > options.getMaxJump()) {
+        double maxJump = options.getMaxJump();
+        if (colorDistanceSq(ctx.initialColor, newColor) > maxJump * maxJump) {
             ctx.searching = false;
         } else {
             ctx.adaptiveTargetColor = blendColors(ctx.adaptiveTargetColor, newColor, COLOR_ADAPTATION_RATE);
@@ -183,7 +184,7 @@ public class RiverTracingEngine {
 
     private double findInitialDirection(BufferedImage img, Point p, int target) {
         double bestAngle = 0;
-        double minDiff = Double.MAX_VALUE;
+        double minDiffSq = Double.MAX_VALUE;
         int stepSize = options.getStepSize();
         int w = img.getWidth();
         int h = img.getHeight();
@@ -194,9 +195,9 @@ public class RiverTracingEngine {
 
             if (!isValidPoint(nx, ny, w, h)) continue;
 
-            double diff = colorDistance(target, img.getRGB(nx, ny));
-            if (diff < minDiff) {
-                minDiff = diff;
+            double diffSq = colorDistanceSq(target, img.getRGB(nx, ny));
+            if (diffSq < minDiffSq) {
+                minDiffSq = diffSq;
                 bestAngle = angle;
             }
         }
@@ -301,6 +302,7 @@ public class RiverTracingEngine {
         Point bestPoint = null;
         double minScore = Double.MAX_VALUE;
         double bestAngleFound = baseAngle;
+        double toleranceSq = tolerance * tolerance;
         int w = img.getWidth();
         int h = img.getHeight();
 
@@ -311,13 +313,17 @@ public class RiverTracingEngine {
             if (!isValidPoint(nx, ny, w, h)) continue;
 
             int c = img.getRGB(nx, ny);
-            double diff = colorDistance(targetColor, c);
-            double anglePenalty = Math.abs(angle - baseAngle) * SCAN_ANGLE_PENALTY_WEIGHT;
+            double diffSq = colorDistanceSq(targetColor, c);
 
-            if ((diff + anglePenalty) < minScore && diff < tolerance) {
-                minScore = diff + anglePenalty;
-                bestPoint = new Point(nx, ny);
-                bestAngleFound = angle;
+            if (diffSq < toleranceSq) {
+                double anglePenalty = Math.abs(angle - baseAngle) * SCAN_ANGLE_PENALTY_WEIGHT;
+                double threshold = minScore - anglePenalty;
+
+                if (threshold > 0 && diffSq < threshold * threshold) {
+                    minScore = Math.sqrt(diffSq) + anglePenalty;
+                    bestPoint = new Point(nx, ny);
+                    bestAngleFound = angle;
+                }
             }
         }
 
@@ -364,7 +370,8 @@ public class RiverTracingEngine {
 
     private boolean isColorMatch(BufferedImage img, int x, int y, int target, int w, int h) {
         if (!isValidPoint(x, y, w, h)) return false;
-        return colorDistance(target, img.getRGB(x, y)) < (options.getColorTolerance() * COLOR_MATCH_TOLERANCE_MULTIPLIER);
+        double tol = options.getColorTolerance() * COLOR_MATCH_TOLERANCE_MULTIPLIER;
+        return colorDistanceSq(target, img.getRGB(x, y)) < tol * tol;
     }
 
     private double interpolateAngle(double oldAngle, double newAngle, double factor) {
@@ -374,7 +381,7 @@ public class RiverTracingEngine {
         return oldAngle + diff * factor;
     }
 
-    private static double colorDistance(int rgb1, int rgb2) {
+    private static double colorDistanceSq(int rgb1, int rgb2) {
         int r1 = (rgb1 >> 16) & 0xFF;
         int g1 = (rgb1 >> 8) & 0xFF;
         int b1 = rgb1 & 0xFF;
@@ -387,7 +394,7 @@ public class RiverTracingEngine {
         int dg = g1 - g2;
         int db = b1 - b2;
 
-        return Math.sqrt((double) dr * dr + (double) dg * dg + (double) db * db);
+        return (double) dr * dr + (double) dg * dg + (double) db * db;
     }
 
     private static int blendColors(int rgb1, int rgb2, double ratio) {
