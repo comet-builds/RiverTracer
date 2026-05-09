@@ -91,33 +91,27 @@ public class OsmWayBuilder {
 
     private ConnectionInfo analyzeConnection(DataSet ds, LatLon ll) {
         ConnectionInfo info = new ConnectionInfo();
-        Node snapNode = findSnapNode(ds, ll);
+        info.node = findSnapNode(ds, ll);
 
-        if (snapNode != null) {
-            info.node = snapNode;
-            // Check if this node is an endpoint of a waterway
-            for (Way w : snapNode.getParentWays()) {
-                if (updateConnectionInfo(info, w, snapNode)) {
-                    break;
-                }
+        if (info.node == null) return info;
+
+        // Check if this node is an endpoint of a waterway
+        for (Way w : info.node.getParentWays()) {
+            if (w.isDeleted() || !w.hasKey(TAG_WATERWAY)) continue;
+
+            if (w.getNode(0) == info.node) {
+                info.way = w;
+                info.isStart = true;
+                break;
+            }
+
+            if (w.getNode(w.getNodesCount() - 1) == info.node) {
+                info.way = w;
+                info.isEnd = true;
+                break;
             }
         }
         return info;
-    }
-
-    private boolean updateConnectionInfo(ConnectionInfo info, Way w, Node snapNode) {
-        if (!w.isDeleted() && w.hasKey(TAG_WATERWAY)) {
-            if (w.getNode(0) == snapNode) {
-                info.way = w;
-                info.isStart = true;
-                return true;
-            } else if (w.getNode(w.getNodesCount() - 1) == snapNode) {
-                info.way = w;
-                info.isEnd = true;
-                return true;
-            }
-        }
-        return false;
     }
 
     private boolean canMerge(ConnectionInfo info) {
