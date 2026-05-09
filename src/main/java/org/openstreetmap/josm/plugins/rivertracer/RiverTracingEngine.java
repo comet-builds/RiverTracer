@@ -4,11 +4,9 @@ import java.awt.Point;
 import java.awt.geom.Line2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
-/**
- * Core engine for tracing rivers from imagery based on color similarity and geometry.
- */
 public class RiverTracingEngine {
 
     private static final int EDGE_MARGIN = 10;
@@ -33,14 +31,6 @@ public class RiverTracingEngine {
         this.options = options;
     }
 
-    /**
-     * Traces a river starting from a specific point in both directions.
-     *
-     * @param snapshot The imagery snapshot.
-     * @param start The starting point on the image.
-     * @param existingWaterways List of existing waterway segments for connection detection.
-     * @return A list of points representing the traced path.
-     */
     public List<Point> trace(BufferedImage snapshot, Point start, List<Line2D> existingWaterways) {
         int startColor = snapshot.getRGB(start.x, start.y);
         double primaryAngle = findInitialDirection(snapshot, start, startColor);
@@ -48,10 +38,8 @@ public class RiverTracingEngine {
         List<Point> forwardPath = findPath(snapshot, start, primaryAngle, existingWaterways);
         List<Point> backwardPath = findPath(snapshot, start, primaryAngle + Math.PI, existingWaterways);
 
-        List<Point> fullPath = new ArrayList<>(backwardPath.size() + Math.max(0, forwardPath.size() - 1));
-        for (int i = backwardPath.size() - 1; i >= 0; i--) {
-            fullPath.add(backwardPath.get(i));
-        }
+        List<Point> fullPath = new ArrayList<>(backwardPath);
+        Collections.reverse(fullPath);
 
         if (!forwardPath.isEmpty()) {
             forwardPath.remove(0);
@@ -69,20 +57,23 @@ public class RiverTracingEngine {
         List<Point> path = new ArrayList<>();
         path.add(start);
 
-        if (!isValidPoint(start, img)) return path;
+        int width = img.getWidth();
+        int height = img.getHeight();
+
+        if (!isValidPoint(start.x, start.y, width, height)) return path;
 
         int initialColor = img.getRGB(start.x, start.y);
         TracingContext ctx = new TracingContext(start, startAngle, initialColor);
 
         while (ctx.searching) {
-            processNextStep(ctx, img, path, waterways);
+            processNextStep(ctx, img, path, waterways, width, height);
         }
 
         return path;
     }
 
-    private void processNextStep(TracingContext ctx, BufferedImage img, List<Point> path, List<Line2D> waterways) {
-        if (isAtEdge(ctx.current, img)) {
+    private void processNextStep(TracingContext ctx, BufferedImage img, List<Point> path, List<Line2D> waterways, int width, int height) {
+        if (isAtEdge(ctx.current, width, height)) {
             ctx.searching = false;
             return;
         }
@@ -94,7 +85,7 @@ public class RiverTracingEngine {
             return;
         }
 
-        Point centeredNext = adjustToCenter(img, res.point, res.angle, ctx.adaptiveTargetColor);
+        Point centeredNext = adjustToCenter(img, res.point, res.angle, ctx.adaptiveTargetColor, width, height);
 
         if (shouldStopAtAngle(path, ctx.current, centeredNext) || intersectsSelf(path, centeredNext)) {
             ctx.searching = false;
@@ -194,12 +185,14 @@ public class RiverTracingEngine {
         double bestAngle = 0;
         double minDiff = Double.MAX_VALUE;
         int stepSize = options.getStepSize();
+        int w = img.getWidth();
+        int h = img.getHeight();
 
         for (double angle = 0; angle < 2 * Math.PI; angle += INITIAL_DIRECTION_ANGLE_STEP) {
             int nx = (int) (p.x + Math.cos(angle) * stepSize);
             int ny = (int) (p.y + Math.sin(angle) * stepSize);
 
-            if (!isValidPoint(new Point(nx, ny), img)) continue;
+            if (!isValidPoint(nx, ny, w, h)) continue;
 
             double diff = colorDistance(target, img.getRGB(nx, ny));
             if (diff < minDiff) {
@@ -215,17 +208,17 @@ public class RiverTracingEngine {
         double minD = Double.MAX_VALUE;
 
         for (Line2D l : waterways) {
-            int x1 = (int)l.getX1();
-            int y1 = (int)l.getY1();
-            int x2 = (int)l.getX2();
-            int y2 = (int)l.getY2();
-
-            double d1 = Point.distance(x1, y1, p.x, p.y);
+            int x1 = (int) l.getX1();
+            int y1 = (int) l.getY1();
+            double d1 = p.distance(x1, y1);
             if (d1 < threshold && d1 < minD) {
                 minD = d1;
                 best = new JoinResult(new Point(x1, y1), d1);
             }
-            double d2 = Point.distance(x2, y2, p.x, p.y);
+
+            int x2 = (int) l.getX2();
+            int y2 = (int) l.getY2();
+            double d2 = p.distance(x2, y2);
             if (d2 < threshold && d2 < minD) {
                 minD = d2;
                 best = new JoinResult(new Point(x2, y2), d2);
@@ -288,24 +281,26 @@ public class RiverTracingEngine {
         return false;
     }
 
-    private boolean isValidPoint(Point p, BufferedImage img) {
-        return p.x >= 0 && p.y >= 0 && p.x < img.getWidth() && p.y < img.getHeight();
+    private boolean isValidPoint(int x, int y, int w, int h) {
+        return x >= 0 && y >= 0 && x < w && y < h;
     }
 
-    private boolean isAtEdge(Point p, BufferedImage img) {
-        return p.x <= EDGE_MARGIN || p.y <= EDGE_MARGIN || p.x >= img.getWidth() - EDGE_MARGIN || p.y >= img.getHeight() - EDGE_MARGIN;
+    private boolean isAtEdge(Point p, int w, int h) {
+        return p.x <= EDGE_MARGIN || p.y <= EDGE_MARGIN || p.x >= w - EDGE_MARGIN || p.y >= h - EDGE_MARGIN;
     }
 
     private ScanResult scanSurroundings(BufferedImage img, Point center, double baseAngle, int radius, double scanArcRad, int targetColor, double tolerance) {
         Point bestPoint = null;
         double minScore = Double.MAX_VALUE;
         double bestAngleFound = baseAngle;
+        int w = img.getWidth();
+        int h = img.getHeight();
 
         for (double angle = baseAngle - scanArcRad; angle <= baseAngle + scanArcRad; angle += SCAN_ANGLE_STEP) {
             int nx = (int) (center.x + Math.cos(angle) * radius);
             int ny = (int) (center.y + Math.sin(angle) * radius);
 
-            if (!isValidPoint(new Point(nx, ny), img)) continue;
+            if (!isValidPoint(nx, ny, w, h)) continue;
 
             int c = img.getRGB(nx, ny);
             double diff = colorDistance(targetColor, c);
@@ -321,7 +316,7 @@ public class RiverTracingEngine {
         return bestPoint != null ? new ScanResult(bestPoint, bestAngleFound) : null;
     }
 
-    private Point adjustToCenter(BufferedImage img, Point p, double angle, int target) {
+    private Point adjustToCenter(BufferedImage img, Point p, double angle, int target, int w, int h) {
         double perpAngle = angle + Math.PI / 2;
         int scanDist = CENTER_ADJUST_SCAN_RANGE;
         int leftLimit = 0;
@@ -330,7 +325,7 @@ public class RiverTracingEngine {
         for (int r = 0; r < scanDist; r++) {
             int nx = (int) (p.x + Math.cos(perpAngle) * r);
             int ny = (int) (p.y + Math.sin(perpAngle) * r);
-            if (!isColorMatch(img, nx, ny, target)) {
+            if (!isColorMatch(img, nx, ny, target, w, h)) {
                 leftLimit = r;
                 break;
             }
@@ -340,7 +335,7 @@ public class RiverTracingEngine {
         for (int r = 0; r < scanDist; r++) {
             int nx = (int) (p.x - Math.cos(perpAngle) * r);
             int ny = (int) (p.y - Math.sin(perpAngle) * r);
-            if (!isColorMatch(img, nx, ny, target)) {
+            if (!isColorMatch(img, nx, ny, target, w, h)) {
                 rightLimit = r;
                 break;
             }
@@ -354,13 +349,13 @@ public class RiverTracingEngine {
         int finalY = (int) (p.y + Math.sin(perpAngle) * shift);
 
         return new Point(
-            Math.max(0, Math.min(img.getWidth() - 1, finalX)),
-            Math.max(0, Math.min(img.getHeight() - 1, finalY))
+            Math.max(0, Math.min(w - 1, finalX)),
+            Math.max(0, Math.min(h - 1, finalY))
         );
     }
 
-    private boolean isColorMatch(BufferedImage img, int x, int y, int target) {
-        if (!isValidPoint(new Point(x, y), img)) return false;
+    private boolean isColorMatch(BufferedImage img, int x, int y, int target, int w, int h) {
+        if (!isValidPoint(x, y, w, h)) return false;
         return colorDistance(target, img.getRGB(x, y)) < (options.getColorTolerance() * COLOR_MATCH_TOLERANCE_MULTIPLIER);
     }
 
