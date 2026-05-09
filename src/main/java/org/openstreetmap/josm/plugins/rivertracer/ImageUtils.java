@@ -27,7 +27,7 @@ public class ImageUtils {
             g.dispose();
             return img;
         } catch (Exception ex) {
-            Logging.error("Failed to capture map snapshot: " + ex.getMessage());
+            Logging.error("Failed to capture map snapshot.", ex);
             return null;
         }
     }
