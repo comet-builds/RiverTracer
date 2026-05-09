@@ -73,33 +73,55 @@ public class RiverTracingEngine {
     }
 
     private void processNextStep(TracingContext ctx, BufferedImage img, List<Point> path, List<Line2D> waterways, int width, int height) {
+        if (checkBoundary(ctx, width, height)) return;
+
+        Point centeredNext = findNextPoint(ctx, img, width, height);
+        if (centeredNext == null) return;
+
+        if (checkStoppingConditions(ctx, path, centeredNext)) return;
+
+        if (attemptJoin(ctx, path, waterways, centeredNext)) return;
+
+        advanceContext(ctx, img, path, centeredNext);
+    }
+
+    private boolean checkBoundary(TracingContext ctx, int width, int height) {
         if (isAtEdge(ctx.current, width, height)) {
             ctx.searching = false;
-            return;
+            return true;
         }
+        return false;
+    }
 
+    private Point findNextPoint(TracingContext ctx, BufferedImage img, int width, int height) {
         ScanResult res = performMultiStageScan(img, ctx.current, ctx.smoothedAngle, ctx.adaptiveTargetColor);
-
         if (res == null) {
             ctx.searching = false;
-            return;
+            return null;
         }
+        return adjustToCenter(img, res.point, res.angle, ctx.adaptiveTargetColor, width, height);
+    }
 
-        Point centeredNext = adjustToCenter(img, res.point, res.angle, ctx.adaptiveTargetColor, width, height);
-
+    private boolean checkStoppingConditions(TracingContext ctx, List<Point> path, Point centeredNext) {
         if (shouldStopAtAngle(path, ctx.current, centeredNext) || intersectsSelf(path, centeredNext)) {
             ctx.searching = false;
-            return;
+            return true;
         }
+        return false;
+    }
 
+    private boolean attemptJoin(TracingContext ctx, List<Point> path, List<Line2D> waterways, Point centeredNext) {
         double joinDistance = JOIN_DISTANCE_MULTIPLIER * options.getStepSize();
         JoinResult join = checkJoin(centeredNext, waterways, joinDistance);
         if (join != null) {
             path.add(join.point);
             ctx.searching = false;
-            return;
+            return true;
         }
+        return false;
+    }
 
+    private void advanceContext(TracingContext ctx, BufferedImage img, List<Point> path, Point centeredNext) {
         path.add(centeredNext);
 
         double actualAngle = Math.atan2((double) centeredNext.y - ctx.current.y, (double) centeredNext.x - ctx.current.x);
