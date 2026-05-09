@@ -8,6 +8,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
@@ -29,6 +31,12 @@ public class RiverTraceController {
     private final RiverTracerPreferences preferences;
     private final List<Point> ghostPath = Collections.synchronizedList(new ArrayList<>());
     private final Timer debounceTimer;
+    private final ExecutorService traceExecutor = Executors.newFixedThreadPool(2, runnable -> {
+        Thread t = new Thread(runnable);
+        t.setDaemon(true);
+        t.setName("RiverTrace-Executor-" + t.getId());
+        return t;
+    });
     
     private BufferedImage cachedSnapshot;
     private EastNorth cachedCenter;
@@ -106,7 +114,7 @@ public class RiverTraceController {
         final EastNorth initialCenter = mv.getCenter();
         final double initialScale = mv.getScale();
 
-        new Thread(() -> {
+        traceExecutor.submit(() -> {
             try {
                 RiverTracingEngine engine = new RiverTracingEngine(options);
                 List<Point> fullPath = engine.trace(snapshot, start, waterways);
@@ -120,7 +128,7 @@ public class RiverTraceController {
             } catch (Exception e) {
                 Logging.error("Error during river tracing.", e);
             }
-        }).start();
+        });
     }
 
     private void updateCacheIfNeeded(MapView mv) {
