@@ -204,40 +204,48 @@ public class RiverTracingEngine {
     }
 
     private JoinResult checkJoin(Point p, List<Line2D> waterways, double threshold) {
-        JoinResult best = null;
-        double minD = Double.MAX_VALUE;
+        double minEndDSq = threshold * threshold;
+        Point bestEndP = null;
 
         for (Line2D l : waterways) {
             int x1 = (int) l.getX1();
             int y1 = (int) l.getY1();
-            double d1 = p.distance(x1, y1);
-            if (d1 < threshold && d1 < minD) {
-                minD = d1;
-                best = new JoinResult(new Point(x1, y1), d1);
+            double dx1 = x1 - p.x;
+            double dy1 = y1 - p.y;
+            double d1Sq = dx1 * dx1 + dy1 * dy1;
+            if (d1Sq < minEndDSq) {
+                minEndDSq = d1Sq;
+                bestEndP = new Point(x1, y1);
             }
 
             int x2 = (int) l.getX2();
             int y2 = (int) l.getY2();
-            double d2 = p.distance(x2, y2);
-            if (d2 < threshold && d2 < minD) {
-                minD = d2;
-                best = new JoinResult(new Point(x2, y2), d2);
+            double dx2 = x2 - p.x;
+            double dy2 = y2 - p.y;
+            double d2Sq = dx2 * dx2 + dy2 * dy2;
+            if (d2Sq < minEndDSq) {
+                minEndDSq = d2Sq;
+                bestEndP = new Point(x2, y2);
             }
         }
 
-        if (best != null) {
-            return best;
+        if (bestEndP != null) {
+            return new JoinResult(bestEndP, Math.sqrt(minEndDSq));
         }
 
+        double minSegDSq = threshold * threshold;
+        Line2D bestSegL = null;
         for (Line2D l : waterways) {
-            double dist = l.ptSegDist(p.x, p.y);
-            if (dist < threshold && dist < minD) {
-                minD = dist;
-                Point proj = getProjectedPoint(l, p);
-                best = new JoinResult(proj, dist);
+            double dSq = l.ptSegDistSq(p.x, p.y);
+            if (dSq < minSegDSq) {
+                minSegDSq = dSq;
+                bestSegL = l;
             }
         }
-        return best;
+        if (bestSegL != null) {
+            return new JoinResult(getProjectedPoint(bestSegL, p), Math.sqrt(minSegDSq));
+        }
+        return null;
     }
 
     private Point getProjectedPoint(Line2D l, Point p) {
