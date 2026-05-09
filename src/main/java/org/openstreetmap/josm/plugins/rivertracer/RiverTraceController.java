@@ -118,7 +118,7 @@ public class RiverTraceController {
                     onSuccess.accept(fullPath);
                 });
             } catch (Exception e) {
-                Logging.error(e);
+                Logging.error("Error during river tracing: " + e.getMessage());
             }
         }).start();
     }
