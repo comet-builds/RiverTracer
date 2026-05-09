@@ -114,11 +114,7 @@ public class RiverTraceController {
         final EastNorth initialCenter = mv.getCenter();
         final double initialScale = mv.getScale();
 
-        traceExecutor.submit(createTraceRunnable(options, snapshot, start, waterways, mv, initialCenter, initialScale, onSuccess));
-    }
-
-    private Runnable createTraceRunnable(RiverTracingOptions options, BufferedImage snapshot, Point start, List<Line2D> waterways, MapView mv, EastNorth initialCenter, double initialScale, Consumer<List<Point>> onSuccess) {
-        return () -> {
+        traceExecutor.submit(() -> {
             try {
                 RiverTracingEngine engine = new RiverTracingEngine(options);
                 List<Point> fullPath = engine.trace(snapshot, start, waterways);
@@ -132,7 +128,7 @@ public class RiverTraceController {
             } catch (Exception e) {
                 Logging.error("Error during river tracing.", e);
             }
-        };
+        });
     }
 
     private void updateCacheIfNeeded(MapView mv) {
