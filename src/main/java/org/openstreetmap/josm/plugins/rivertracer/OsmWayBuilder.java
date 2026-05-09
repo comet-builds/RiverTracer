@@ -324,28 +324,32 @@ public class OsmWayBuilder {
 
     private void updateBestSegmentMatch(Way w, LatLon ll, SegmentMatch bestMatch) {
         for (int i = 0; i < w.getNodesCount() - 1; i++) {
-            Node n1 = w.getNode(i);
-            Node n2 = w.getNode(i + 1);
+            checkSegmentMatch(w, i, ll, bestMatch);
+        }
+    }
 
-            if (n1.isDeleted() || n2.isDeleted()) {
-                continue;
-            }
+    private void checkSegmentMatch(Way w, int i, LatLon ll, SegmentMatch bestMatch) {
+        Node n1 = w.getNode(i);
+        Node n2 = w.getNode(i + 1);
 
-            LatLon c1 = n1.getCoor();
-            LatLon c2 = n2.getCoor();
+        if (n1.isDeleted() || n2.isDeleted()) {
+            return;
+        }
 
-            if (!isWithinBoundingBox(c1, c2, ll)) {
-                continue;
-            }
+        LatLon c1 = n1.getCoor();
+        LatLon c2 = n2.getCoor();
 
-            LatLon proj = getClosestPointOnSegment(c1, c2, ll);
-            double dist = proj.greatCircleDistance(ll);
+        if (!isWithinBoundingBox(c1, c2, ll)) {
+            return;
+        }
 
-            if (dist < SNAP_DISTANCE_METERS && dist < bestMatch.dist) {
-                bestMatch.dist = dist;
-                bestMatch.seg = new WaySegment(w, i);
-                bestMatch.proj = proj;
-            }
+        LatLon proj = getClosestPointOnSegment(c1, c2, ll);
+        double dist = proj.greatCircleDistance(ll);
+
+        if (dist < SNAP_DISTANCE_METERS && dist < bestMatch.dist) {
+            bestMatch.dist = dist;
+            bestMatch.seg = new WaySegment(w, i);
+            bestMatch.proj = proj;
         }
     }
 
