@@ -299,59 +299,68 @@ public class OsmWayBuilder {
         return bestNode;
     }
 
+    private static class SegmentMatch {
+        WaySegment seg;
+        LatLon proj;
+        double dist = Double.MAX_VALUE;
+    }
+
     private Node snapToSegment(DataSet ds, LatLon ll, List<Command> cmds) {
         BBox searchBox = createSearchBox(ll);
         Collection<Way> ways = ds.searchWays(searchBox);
 
-        WaySegment bestSeg = null;
-        LatLon bestProj = null;
-        double minDist = Double.MAX_VALUE;
+        SegmentMatch bestMatch = new SegmentMatch();
 
         for (Way w : ways) {
-            if (w.isDeleted() || !w.hasKey(TAG_WATERWAY)) continue;
-
-            for (int i = 0; i < w.getNodesCount() - 1; i++) {
-                Node n1 = w.getNode(i);
-                Node n2 = w.getNode(i + 1);
-
-                if (n1.isDeleted() || n2.isDeleted()) continue;
-
-                LatLon c1 = n1.getCoor();
-                LatLon c2 = n2.getCoor();
-
-                // Bounding box check for the segment
-                double segMinLat = Math.min(c1.lat(), c2.lat());
-                double segMaxLat = Math.max(c1.lat(), c2.lat());
-                double segMinLon = Math.min(c1.lon(), c2.lon());
-                double segMaxLon = Math.max(c1.lon(), c2.lon());
-
-                if (segMaxLat < ll.lat() - SEARCH_PADDING_DEG || segMinLat > ll.lat() + SEARCH_PADDING_DEG ||
-                    segMaxLon < ll.lon() - SEARCH_PADDING_DEG || segMinLon > ll.lon() + SEARCH_PADDING_DEG) {
-                    continue;
-                }
-
-                LatLon proj = getClosestPointOnSegment(c1, c2, ll);
-                double dist = proj.greatCircleDistance(ll);
-
-                if (dist < SNAP_DISTANCE_METERS && dist < minDist) {
-                    minDist = dist;
-                    bestSeg = new WaySegment(w, i);
-                    bestProj = proj;
-                }
+            if (!w.isDeleted() && w.hasKey(TAG_WATERWAY)) {
+                updateBestSegmentMatch(w, ll, bestMatch);
             }
         }
 
-        if (bestSeg == null) return null;
+        if (bestMatch.seg == null) return null;
 
-        Node newNode = new Node(bestProj);
+        Node newNode = new Node(bestMatch.proj);
         cmds.add(new AddCommand(ds, newNode));
 
-        Way w = bestSeg.getWay();
+        Way w = bestMatch.seg.getWay();
         Way newWay = new Way(w);
-        newWay.addNode(bestSeg.getLowerIndex() + 1, newNode);
+        newWay.addNode(bestMatch.seg.getLowerIndex() + 1, newNode);
 
         cmds.add(new ChangeCommand(w, newWay));
         return newNode;
+    }
+
+    private void updateBestSegmentMatch(Way w, LatLon ll, SegmentMatch bestMatch) {
+        for (int i = 0; i < w.getNodesCount() - 1; i++) {
+            Node n1 = w.getNode(i);
+            Node n2 = w.getNode(i + 1);
+
+            if (!n1.isDeleted() && !n2.isDeleted()) {
+                LatLon c1 = n1.getCoor();
+                LatLon c2 = n2.getCoor();
+
+                if (isWithinBoundingBox(c1, c2, ll)) {
+                    LatLon proj = getClosestPointOnSegment(c1, c2, ll);
+                    double dist = proj.greatCircleDistance(ll);
+
+                    if (dist < SNAP_DISTANCE_METERS && dist < bestMatch.dist) {
+                        bestMatch.dist = dist;
+                        bestMatch.seg = new WaySegment(w, i);
+                        bestMatch.proj = proj;
+                    }
+                }
+            }
+        }
+    }
+
+    private boolean isWithinBoundingBox(LatLon c1, LatLon c2, LatLon ll) {
+        double segMinLat = Math.min(c1.lat(), c2.lat());
+        double segMaxLat = Math.max(c1.lat(), c2.lat());
+        double segMinLon = Math.min(c1.lon(), c2.lon());
+        double segMaxLon = Math.max(c1.lon(), c2.lon());
+
+        return !(segMaxLat < ll.lat() - SEARCH_PADDING_DEG || segMinLat > ll.lat() + SEARCH_PADDING_DEG ||
+                 segMaxLon < ll.lon() - SEARCH_PADDING_DEG || segMinLon > ll.lon() + SEARCH_PADDING_DEG);
     }
 
     private LatLon getClosestPointOnSegment(LatLon p1, LatLon p2, LatLon p) {
