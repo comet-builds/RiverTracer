@@ -327,20 +327,24 @@ public class OsmWayBuilder {
             Node n1 = w.getNode(i);
             Node n2 = w.getNode(i + 1);
 
-            if (!n1.isDeleted() && !n2.isDeleted()) {
-                LatLon c1 = n1.getCoor();
-                LatLon c2 = n2.getCoor();
+            if (n1.isDeleted() || n2.isDeleted()) {
+                continue;
+            }
 
-                if (isWithinBoundingBox(c1, c2, ll)) {
-                    LatLon proj = getClosestPointOnSegment(c1, c2, ll);
-                    double dist = proj.greatCircleDistance(ll);
+            LatLon c1 = n1.getCoor();
+            LatLon c2 = n2.getCoor();
 
-                    if (dist < SNAP_DISTANCE_METERS && dist < bestMatch.dist) {
-                        bestMatch.dist = dist;
-                        bestMatch.seg = new WaySegment(w, i);
-                        bestMatch.proj = proj;
-                    }
-                }
+            if (!isWithinBoundingBox(c1, c2, ll)) {
+                continue;
+            }
+
+            LatLon proj = getClosestPointOnSegment(c1, c2, ll);
+            double dist = proj.greatCircleDistance(ll);
+
+            if (dist < SNAP_DISTANCE_METERS && dist < bestMatch.dist) {
+                bestMatch.dist = dist;
+                bestMatch.seg = new WaySegment(w, i);
+                bestMatch.proj = proj;
             }
         }
     }
