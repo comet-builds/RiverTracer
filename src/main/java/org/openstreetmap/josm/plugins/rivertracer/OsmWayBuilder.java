@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 import org.openstreetmap.josm.command.AddCommand;
 import org.openstreetmap.josm.command.ChangeCommand;
@@ -91,33 +92,24 @@ public class OsmWayBuilder {
 
     private ConnectionInfo analyzeConnection(DataSet ds, LatLon ll) {
         ConnectionInfo info = new ConnectionInfo();
-        Node snapNode = findSnapNode(ds, ll);
+        info.node = findSnapNode(ds, ll);
 
-        if (snapNode != null) {
-            info.node = snapNode;
-            // Check if this node is an endpoint of a waterway
-            for (Way w : snapNode.getParentWays()) {
-                if (updateConnectionInfo(info, w, snapNode)) {
-                    break;
+        if (info.node != null) {
+            Optional<Way> foundWay = info.node.getParentWays().stream()
+                .filter(w -> !w.isDeleted() && w.hasKey(TAG_WATERWAY))
+                .filter(w -> w.getNode(0) == info.node || w.getNode(w.getNodesCount() - 1) == info.node)
+                .findFirst();
+
+            foundWay.ifPresent(w -> {
+                info.way = w;
+                if (w.getNode(0) == info.node) {
+                    info.isStart = true;
+                } else {
+                    info.isEnd = true;
                 }
-            }
+            });
         }
         return info;
-    }
-
-    private boolean updateConnectionInfo(ConnectionInfo info, Way w, Node snapNode) {
-        if (!w.isDeleted() && w.hasKey(TAG_WATERWAY)) {
-            if (w.getNode(0) == snapNode) {
-                info.way = w;
-                info.isStart = true;
-                return true;
-            } else if (w.getNode(w.getNodesCount() - 1) == snapNode) {
-                info.way = w;
-                info.isEnd = true;
-                return true;
-            }
-        }
-        return false;
     }
 
     private boolean canMerge(ConnectionInfo info) {
