@@ -81,7 +81,9 @@ public class OsmWayBuilder {
             } else if (!sameWayLoop && canMerge(endConn)) {
                 mergeOne(ds, endConn, path, mv, cmds, false, snapDistMeters);
             } else {
-                createFreshWay(ds, path, mv, cmds, options, startConn, endConn, snapDistMeters);
+                Node startNode = resolveEndpoint(ds, startConn, startLL, cmds, snapDistMeters);
+                Node endNode = resolveEndpoint(ds, endConn, endLL, cmds, snapDistMeters);
+                createFreshWay(ds, path, mv, cmds, options, startNode, endNode);
             }
 
             if (!cmds.isEmpty()) {
@@ -99,27 +101,38 @@ public class OsmWayBuilder {
     private ConnectionInfo analyzeConnection(DataSet ds, LatLon ll, double snapDistMeters, RiverTracingOptions options) {
         ConnectionInfo info = new ConnectionInfo();
         info.node = findSnapNode(ds, ll, snapDistMeters);
+        if (info.node == null) {
+            return info;
+        }
 
-        if (info.node != null) {
-            List<Way> parentWaterways = info.node.getParentWays().stream()
-                .filter(w -> !w.isDeleted() && w.hasKey(TAG_WATERWAY) && w.getNodesCount() > 1 && !w.isClosed())
-                .collect(Collectors.toList());
-
-            String expectedType = options.isRiver() ? "river" : "stream";
-            if (parentWaterways.size() == 1) {
-                Way w = parentWaterways.get(0);
-                if (expectedType.equals(w.get(TAG_WATERWAY))
-                        && (w.getNode(0) == info.node || w.getNode(w.getNodesCount() - 1) == info.node)) {
-                    info.way = w;
-                    if (w.getNode(0) == info.node) {
-                        info.isStart = true;
-                    } else {
-                        info.isEnd = true;
-                    }
-                }
-            }
+        Way w = findSingleParentWaterway(info.node, options);
+        if (w != null && isEndpointOfWay(info.node, w)) {
+            info.way = w;
+            info.isStart = w.getNode(0) == info.node;
+            info.isEnd = !info.isStart;
         }
         return info;
+    }
+
+    private Way findSingleParentWaterway(Node node, RiverTracingOptions options) {
+        List<Way> parentWaterways = node.getParentWays().stream()
+            .filter(this::isOpenWaterway)
+            .collect(Collectors.toList());
+
+        if (parentWaterways.size() != 1) {
+            return null;
+        }
+        Way w = parentWaterways.get(0);
+        String expectedType = options.isRiver() ? "river" : "stream";
+        return expectedType.equals(w.get(TAG_WATERWAY)) ? w : null;
+    }
+
+    private boolean isOpenWaterway(Way w) {
+        return !w.isDeleted() && w.hasKey(TAG_WATERWAY) && w.getNodesCount() > 1 && !w.isClosed();
+    }
+
+    private boolean isEndpointOfWay(Node node, Way w) {
+        return w.getNode(0) == node || w.getNode(w.getNodesCount() - 1) == node;
     }
 
     private boolean canMerge(ConnectionInfo info) {
@@ -212,10 +225,11 @@ public class OsmWayBuilder {
         cmds.add(new DeleteCommand(deleteWay));
     }
 
-    private void createFreshWay(DataSet ds, List<Point> path, MapView mv, List<Command> cmds, RiverTracingOptions options, ConnectionInfo startConn, ConnectionInfo endConn, double snapDistMeters) {
-        Node startNode = (startConn.isValid()) ? startConn.node : snapPoint(ds, mv.getLatLon(path.get(0).x, path.get(0).y), cmds, snapDistMeters);
-        Node endNode = (endConn.isValid()) ? endConn.node : snapPoint(ds, mv.getLatLon(path.get(path.size()-1).x, path.get(path.size()-1).y), cmds, snapDistMeters);
+    private Node resolveEndpoint(DataSet ds, ConnectionInfo conn, LatLon ll, List<Command> cmds, double snapDistMeters) {
+        return conn.isValid() ? conn.node : snapPoint(ds, ll, cmds, snapDistMeters);
+    }
 
+    private void createFreshWay(DataSet ds, List<Point> path, MapView mv, List<Command> cmds, RiverTracingOptions options, Node startNode, Node endNode) {
         List<Node> nodes = generateSegmentNodes(ds, path, mv, cmds, startNode, endNode);
         if (nodes.size() < 2 || (startNode == endNode && nodes.size() < 3)) {
             return;

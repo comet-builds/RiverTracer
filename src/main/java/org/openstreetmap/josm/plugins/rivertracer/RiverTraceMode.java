@@ -111,9 +111,9 @@ public class RiverTraceMode extends MapMode implements MouseMotionListener, MapV
                 g2.setStroke(new BasicStroke(2));
 
                 GeneralPath path = new GeneralPath();
-                path.moveTo(ghostPath.get(0).x, ghostPath.get(0).y);
+                path.moveTo((float) ghostPath.get(0).x, (float) ghostPath.get(0).y);
                 for (int i = 1; i < ghostPath.size(); i++) {
-                    path.lineTo(ghostPath.get(i).x, ghostPath.get(i).y);
+                    path.lineTo((float) ghostPath.get(i).x, (float) ghostPath.get(i).y);
                 }
                 g2.draw(path);
             } finally {

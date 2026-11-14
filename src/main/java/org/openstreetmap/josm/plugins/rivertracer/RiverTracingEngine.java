@@ -273,7 +273,7 @@ public class RiverTracingEngine {
             }
 
             int alongReach = forwardReach + backwardReach;
-            double elongationBonus = Math.max(-25.0, Math.min(25.0, (perpReach - alongReach) * 0.5));
+            double elongationBonus = Math.max(-25.0, Math.min(25.0, ((double) perpReach - alongReach) * 0.5));
             double score = forwardDiff + 0.5 * backwardDiff + elongationBonus;
 
             if (score < minScore) {
@@ -332,13 +332,20 @@ public class RiverTracingEngine {
     private JoinResult checkJoin(Point current, Point p, List<Line2D> waterways, double threshold, int pathSize) {
         double thresholdSq = threshold * threshold;
 
-        // 1. Check direct segment-segment intersection so steps cannot jump over existing waterways
         JoinResult intersectionJoin = checkSegmentIntersectionJoin(current, p, waterways, thresholdSq, pathSize);
         if (intersectionJoin != null) {
             return intersectionJoin;
         }
 
-        // 2. Check endpoint proximity
+        JoinResult endpointJoin = checkEndpointJoin(current, p, waterways, thresholdSq, pathSize);
+        if (endpointJoin != null) {
+            return endpointJoin;
+        }
+
+        return checkProjectionJoin(current, p, waterways, thresholdSq, pathSize);
+    }
+
+    private JoinResult checkEndpointJoin(Point current, Point p, List<Line2D> waterways, double thresholdSq, int pathSize) {
         double minEndDSq = thresholdSq;
         Point bestEndP = null;
 
@@ -358,11 +365,10 @@ public class RiverTracingEngine {
             }
         }
 
-        if (bestEndP != null) {
-            return new JoinResult(bestEndP, Math.sqrt(minEndDSq));
-        }
+        return bestEndP != null ? new JoinResult(bestEndP, Math.sqrt(minEndDSq)) : null;
+    }
 
-        // 3. Check segment projection proximity
+    private JoinResult checkProjectionJoin(Point current, Point p, List<Line2D> waterways, double thresholdSq, int pathSize) {
         double minSegDSq = thresholdSq;
         Point bestProjP = null;
         for (Line2D l : waterways) {
@@ -375,10 +381,7 @@ public class RiverTracingEngine {
                 }
             }
         }
-        if (bestProjP != null) {
-            return new JoinResult(bestProjP, Math.sqrt(minSegDSq));
-        }
-        return null;
+        return bestProjP != null ? new JoinResult(bestProjP, Math.sqrt(minSegDSq)) : null;
     }
 
     private JoinResult checkSegmentIntersectionJoin(Point current, Point next, List<Line2D> waterways, double endSnapThresholdSq, int pathSize) {
@@ -386,30 +389,40 @@ public class RiverTracingEngine {
         Point bestJoinPoint = null;
 
         for (Line2D l : waterways) {
-            if (pathSize <= 1 && l.ptSegDistSq(current.x, current.y) < 9.0) {
+            if (isStartingOnSegment(current, l, pathSize)
+                    || !Line2D.linesIntersect(current.x, current.y, next.x, next.y, l.getX1(), l.getY1(), l.getX2(), l.getY2())) {
                 continue;
             }
-            if (Line2D.linesIntersect(current.x, current.y, next.x, next.y, l.getX1(), l.getY1(), l.getX2(), l.getY2())) {
-                Point inter = computeLineIntersection(current, next, l);
-                if (inter == null) continue;
+            Point inter = computeLineIntersection(current, next, l);
+            if (inter == null) continue;
 
-                Point end1 = new Point((int) Math.round(l.getX1()), (int) Math.round(l.getY1()));
-                Point end2 = new Point((int) Math.round(l.getX2()), (int) Math.round(l.getY2()));
-                if (inter.distanceSq(end1) < endSnapThresholdSq && inter.distanceSq(end1) <= inter.distanceSq(end2)) {
-                    inter = end1;
-                } else if (inter.distanceSq(end2) < endSnapThresholdSq) {
-                    inter = end2;
-                }
-
-                double dSq = current.distanceSq(inter);
-                if (dSq < minDistSq) {
-                    minDistSq = dSq;
-                    bestJoinPoint = inter;
-                }
+            inter = snapIntersectionToEndpoint(inter, l, endSnapThresholdSq);
+            double dSq = current.distanceSq(inter);
+            if (dSq < minDistSq) {
+                minDistSq = dSq;
+                bestJoinPoint = inter;
             }
         }
 
         return bestJoinPoint != null ? new JoinResult(bestJoinPoint, Math.sqrt(minDistSq)) : null;
+    }
+
+    private boolean isStartingOnSegment(Point current, Line2D l, int pathSize) {
+        return pathSize <= 1 && l.ptSegDistSq(current.x, current.y) < 9.0;
+    }
+
+    private Point snapIntersectionToEndpoint(Point inter, Line2D l, double endSnapThresholdSq) {
+        Point end1 = new Point((int) Math.round(l.getX1()), (int) Math.round(l.getY1()));
+        Point end2 = new Point((int) Math.round(l.getX2()), (int) Math.round(l.getY2()));
+        double d1Sq = inter.distanceSq(end1);
+        double d2Sq = inter.distanceSq(end2);
+        if (d1Sq < endSnapThresholdSq && d1Sq <= d2Sq) {
+            return end1;
+        }
+        if (d2Sq < endSnapThresholdSq) {
+            return end2;
+        }
+        return inter;
     }
 
     private Point computeLineIntersection(Point p1, Point p2, Line2D l) {
@@ -472,45 +485,42 @@ public class RiverTracingEngine {
         Point current = path.get(path.size() - 1);
         if (current.equals(next)) return true;
 
-        int minX = Math.min(current.x, next.x);
-        int maxX = Math.max(current.x, next.x);
-        int minY = Math.min(current.y, next.y);
-        int maxY = Math.max(current.y, next.y);
-
         double minClearance = Math.max(6.0, options.getStepSize() * 0.55);
         double minClearanceSq = minClearance * minClearance;
-        double sameChannelDist = Math.max(minClearance,
-                ctx.estimatedHalfWidth > 0 ? Math.min(options.getStepSize() * 1.4, ctx.estimatedHalfWidth * 1.8) : minClearance);
+        double sameChannelDist = computeSameChannelDist(ctx, minClearance);
         double sameChannelDistSq = sameChannelDist * sameChannelDist;
 
-        // 1. Check against earlier segments in current path
+        return intersectsCurrentPath(img, ctx, path, next, minClearanceSq, sameChannelDistSq)
+                || intersectsOtherPath(img, ctx, otherPath, next, minClearanceSq, sameChannelDistSq);
+    }
+
+    private double computeSameChannelDist(TracingContext ctx, double minClearance) {
+        if (ctx.estimatedHalfWidth <= 0) {
+            return minClearance;
+        }
+        return Math.max(minClearance, Math.min(options.getStepSize() * 1.4, ctx.estimatedHalfWidth * 1.8));
+    }
+
+    private boolean intersectsCurrentPath(BufferedImage img, TracingContext ctx, List<Point> path, Point next, double minClearanceSq, double sameChannelDistSq) {
+        Point current = ctx.current;
         for (int i = 0; i < path.size() - 2; i++) {
             Point p1 = path.get(i);
             Point p2 = path.get(i + 1);
-
-            int pMinX = Math.min(p1.x, p2.x);
-            int pMaxX = Math.max(p1.x, p2.x);
-            int pMinY = Math.min(p1.y, p2.y);
-            int pMaxY = Math.max(p1.y, p2.y);
-
-            if (!(maxX < pMinX || minX > pMaxX) && !(maxY < pMinY || minY > pMaxY)
-                    && Line2D.linesIntersect(p1.x, p1.y, p2.x, p2.y, current.x, current.y, next.x, next.y)) {
+            if (Line2D.linesIntersect(p1.x, p1.y, p2.x, p2.y, current.x, current.y, next.x, next.y)) {
                 return true;
             }
-
             if (i <= path.size() - 4) {
                 double distSq = Line2D.ptSegDistSq(p1.x, p1.y, p2.x, p2.y, next.x, next.y);
-                if (distSq < minClearanceSq) {
-                    return true;
-                }
-                if (i <= path.size() - 6 && distSq < sameChannelDistSq
-                        && isSameChannelReverse(img, ctx, current, next, p1, p2, true)) {
+                if (distSq < minClearanceSq || (i <= path.size() - 6 && distSq < sameChannelDistSq && isSameChannelReverse(img, ctx, next, p1, p2, true))) {
                     return true;
                 }
             }
         }
+        return false;
+    }
 
-        // 2. Check against the opposite half-path (when tracing backwardPath after forwardPath)
+    private boolean intersectsOtherPath(BufferedImage img, TracingContext ctx, List<Point> otherPath, Point next, double minClearanceSq, double sameChannelDistSq) {
+        Point current = ctx.current;
         for (int i = 1; i < otherPath.size() - 1; i++) {
             Point p1 = otherPath.get(i);
             Point p2 = otherPath.get(i + 1);
@@ -519,20 +529,16 @@ public class RiverTracingEngine {
             }
             if (i >= 2) {
                 double distSq = Line2D.ptSegDistSq(p1.x, p1.y, p2.x, p2.y, next.x, next.y);
-                if (distSq < minClearanceSq) {
-                    return true;
-                }
-                if (i >= 3 && distSq < sameChannelDistSq
-                        && isSameChannelReverse(img, ctx, current, next, p1, p2, false)) {
+                if (distSq < minClearanceSq || (i >= 3 && distSq < sameChannelDistSq && isSameChannelReverse(img, ctx, next, p1, p2, false))) {
                     return true;
                 }
             }
         }
-
         return false;
     }
 
-    private boolean isSameChannelReverse(BufferedImage img, TracingContext ctx, Point current, Point next, Point p1, Point p2, boolean sameHalfPath) {
+    private boolean isSameChannelReverse(BufferedImage img, TracingContext ctx, Point next, Point p1, Point p2, boolean sameHalfPath) {
+        Point current = ctx.current;
         double dx1 = (double) next.x - current.x;
         double dy1 = (double) next.y - current.y;
         double dx2 = (double) p2.x - p1.x;
@@ -542,8 +548,6 @@ public class RiverTracingEngine {
         if (len1 < 1e-3 || len2 < 1e-3) return false;
 
         double cos = (dx1 * dx2 + dy1 * dy2) / (len1 * len2);
-        // For the same half-path, reverse tracing moves opposite to (p1 -> p2) (cos < -0.5).
-        // For otherPath (which was traced away from start in the opposite direction), retracing moves parallel to (p1 -> p2) (cos > 0.5).
         boolean oppositeFlow = sameHalfPath ? (cos < -0.5) : (cos > 0.5);
         if (!oppositeFlow) return false;
 
@@ -571,7 +575,6 @@ public class RiverTracingEngine {
     }
 
     private ScanResult scanChannel(BufferedImage img, List<Point> path, TracingContext ctx) {
-        Point center = ctx.current;
         int fullStep = options.getStepSize();
         int minStep = Math.max(7, (int) Math.round(fullStep * 0.6));
         double tol = options.getColorTolerance();
@@ -579,17 +582,13 @@ public class RiverTracingEngine {
         double sharpTolSq = (tol * 1.15) * (tol * 1.15);
         double maxTurnRad = Math.toRadians(options.getMaxAngle());
         double scanArc = Math.min(SCAN_ARC_SHARP, maxTurnRad);
-        int targetColor = ctx.adaptiveTargetColor;
-        int w = img.getWidth();
-        int h = img.getHeight();
 
         Point bestPoint = null;
         double minScore = Double.MAX_VALUE;
         double bestAngleFound = ctx.lastStepAngle;
 
         for (double angle = ctx.lastStepAngle - scanArc; angle <= ctx.lastStepAngle + scanArc; angle += SCAN_ANGLE_STEP) {
-            double turnFromLast = Math.abs(normalizeAngle(angle - ctx.lastStepAngle));
-            if (path.size() >= 2 && turnFromLast >= maxTurnRad) {
+            if (!isAllowedTurnAngle(path, ctx, angle, maxTurnRad)) {
                 continue;
             }
 
@@ -597,58 +596,117 @@ public class RiverTracingEngine {
             boolean isSharpRay = smoothDiff > SCAN_ARC_STANDARD;
             double allowedTolSq = isSharpRay ? sharpTolSq : baseTolSq;
 
-            double rayDiffSum = 0.0;
-            int raySamples = 0;
-            int reachedR = 0;
-            double endDiffSq = Double.MAX_VALUE;
-
-            for (int r = 2; r <= fullStep; r += 2) {
-                int rx = (int) Math.round(center.x + Math.cos(angle) * r);
-                int ry = (int) Math.round(center.y + Math.sin(angle) * r);
-                if (!isValidPoint(rx, ry, w, h)) {
-                    break;
-                }
-                double rDiffSq = colorDistanceSq(targetColor, sampleColor(img, rx, ry, w, h));
-                if (rDiffSq >= allowedTolSq * 1.2) {
-                    break;
-                }
-                rayDiffSum += Math.sqrt(rDiffSq);
-                raySamples++;
-                reachedR = r;
-                endDiffSq = rDiffSq;
-            }
-
-            if (reachedR < fullStep && reachedR == fullStep - 1) {
-                int rx = (int) Math.round(center.x + Math.cos(angle) * fullStep);
-                int ry = (int) Math.round(center.y + Math.sin(angle) * fullStep);
-                if (isValidPoint(rx, ry, w, h)) {
-                    double rDiffSq = colorDistanceSq(targetColor, sampleColor(img, rx, ry, w, h));
-                    if (rDiffSq < allowedTolSq) {
-                        reachedR = fullStep;
-                        endDiffSq = rDiffSq;
-                    }
-                }
-            }
-
-            if (reachedR < minStep || endDiffSq >= allowedTolSq) {
+            RayProbe probe = traceChannelRay(img, ctx, angle, fullStep, allowedTolSq);
+            if (probe.reachedR < minStep || probe.endDiffSq >= allowedTolSq || isBacktracking(path, ctx.current, probe.endpoint)) {
                 continue;
             }
 
-            int nx = (int) Math.round(center.x + Math.cos(angle) * reachedR);
-            int ny = (int) Math.round(center.y + Math.sin(angle) * reachedR);
-            Point candidate = new Point(nx, ny);
-            if (isBacktracking(path, center, candidate)) {
+            double totalScore = scoreChannelRay(img, ctx, probe, angle, smoothDiff, isSharpRay, allowedTolSq);
+            if (totalScore < minScore) {
+                minScore = totalScore;
+                bestPoint = probe.endpoint;
+                bestAngleFound = angle;
+            }
+        }
+
+        return bestPoint != null ? new ScanResult(bestPoint, bestAngleFound) : null;
+    }
+
+    private boolean isAllowedTurnAngle(List<Point> path, TracingContext ctx, double angle, double maxTurnRad) {
+        return path.size() < 2 || Math.abs(normalizeAngle(angle - ctx.lastStepAngle)) < maxTurnRad;
+    }
+
+    private RayProbe traceChannelRay(BufferedImage img, TracingContext ctx, double angle, int fullStep, double allowedTolSq) {
+        Point center = ctx.current;
+        int targetColor = ctx.adaptiveTargetColor;
+        int w = img.getWidth();
+        int h = img.getHeight();
+        double rayDiffSum = 0.0;
+        int raySamples = 0;
+        int reachedR = 0;
+        double endDiffSq = Double.MAX_VALUE;
+
+        for (int r = 2; r <= fullStep; r += 2) {
+            int rx = (int) Math.round(center.x + Math.cos(angle) * r);
+            int ry = (int) Math.round(center.y + Math.sin(angle) * r);
+            if (!isValidPoint(rx, ry, w, h)) {
+                break;
+            }
+            double rDiffSq = colorDistanceSq(targetColor, sampleColor(img, rx, ry, w, h));
+            if (rDiffSq >= allowedTolSq * 1.2) {
+                break;
+            }
+            rayDiffSum += Math.sqrt(rDiffSq);
+            raySamples++;
+            reachedR = r;
+            endDiffSq = rDiffSq;
+        }
+
+        if (reachedR == fullStep - 1) {
+            double fullStepDiffSq = sampleRayDistanceDiffSq(img, center, angle, fullStep, targetColor, w, h);
+            if (fullStepDiffSq < allowedTolSq) {
+                reachedR = fullStep;
+                endDiffSq = fullStepDiffSq;
+            }
+        }
+
+        Point endpoint = new Point(
+                (int) Math.round(center.x + Math.cos(angle) * reachedR),
+                (int) Math.round(center.y + Math.sin(angle) * reachedR));
+        double meanRayDiff = raySamples > 0 ? (rayDiffSum / raySamples) : Math.sqrt(endDiffSq);
+        return new RayProbe(endpoint, reachedR, endDiffSq, meanRayDiff);
+    }
+
+    private double sampleRayDistanceDiffSq(BufferedImage img, Point center, double angle, int r, int targetColor, int w, int h) {
+        int rx = (int) Math.round(center.x + Math.cos(angle) * r);
+        int ry = (int) Math.round(center.y + Math.sin(angle) * r);
+        if (!isValidPoint(rx, ry, w, h)) {
+            return Double.MAX_VALUE;
+        }
+        return colorDistanceSq(targetColor, sampleColor(img, rx, ry, w, h));
+    }
+
+    private double scoreChannelRay(BufferedImage img, TracingContext ctx, RayProbe probe, double angle, double smoothDiff, boolean isSharpRay, double allowedTolSq) {
+        int fullStep = options.getStepSize();
+        double colorScore = 0.6 * Math.sqrt(probe.endDiffSq) + 0.4 * probe.meanRayDiff;
+        double anglePenalty = smoothDiff * SCAN_ANGLE_PENALTY_WEIGHT
+                + (isSharpRay ? (smoothDiff - SCAN_ARC_STANDARD) * 12.0 : 0.0);
+        double shortStepPenalty = ((double) fullStep - probe.reachedR) * 1.4;
+        double clearanceBonus = computeBankClearanceBonus(img, ctx, probe.endpoint.x, probe.endpoint.y, angle, allowedTolSq);
+        return Math.max(0.0, colorScore + anglePenalty + shortStepPenalty - clearanceBonus);
+    }
+
+    private ScanResult scanBridge(BufferedImage img, List<Point> path, TracingContext ctx) {
+        Point center = ctx.current;
+        int bridgeRadius = (int) Math.round(options.getStepSize() * BRIDGE_SCAN_STEP_MULTIPLIER);
+        int verifyRadius = bridgeRadius + Math.max(5, options.getStepSize() / 2);
+        int maxObstacleSpan = (int) Math.round(options.getStepSize() * 1.7);
+        double tol = options.getColorTolerance() * BRIDGE_SCAN_TOLERANCE_MULTIPLIER;
+        double tolSq = tol * tol;
+        double maxTurnRad = Math.toRadians(options.getMaxAngle());
+        double scanArc = Math.min(SCAN_ARC_BRIDGE, maxTurnRad);
+
+        Point bestPoint = null;
+        double minScore = Double.MAX_VALUE;
+        double bestAngleFound = ctx.lastStepAngle;
+
+        for (double angle = ctx.lastStepAngle - scanArc; angle <= ctx.lastStepAngle + scanArc; angle += SCAN_ANGLE_STEP) {
+            Point candidate = new Point(
+                    (int) Math.round(center.x + Math.cos(angle) * bridgeRadius),
+                    (int) Math.round(center.y + Math.sin(angle) * bridgeRadius));
+            if (isBacktracking(path, center, candidate)
+                    || countObstaclePixels(img, ctx, angle, bridgeRadius, tolSq) > maxObstacleSpan) {
                 continue;
             }
 
-            double meanRayDiff = raySamples > 0 ? (rayDiffSum / raySamples) : Math.sqrt(endDiffSq);
-            double colorScore = 0.6 * Math.sqrt(endDiffSq) + 0.4 * meanRayDiff;
+            double farColorScore = evaluateBridgeFarSide(img, ctx, angle, bridgeRadius, verifyRadius, tolSq);
+            if (Double.isInfinite(farColorScore)) {
+                continue;
+            }
 
-            double anglePenalty = smoothDiff * SCAN_ANGLE_PENALTY_WEIGHT
-                    + (isSharpRay ? (smoothDiff - SCAN_ARC_STANDARD) * 12.0 : 0.0);
-            double shortStepPenalty = (fullStep - reachedR) * 1.4;
-            double clearanceBonus = computeBankClearanceBonus(img, nx, ny, angle, targetColor, allowedTolSq, w, h, ctx.estimatedHalfWidth);
-            double totalScore = Math.max(0.0, colorScore + anglePenalty + shortStepPenalty - clearanceBonus);
+            double anglePenalty = Math.abs(normalizeAngle(angle - ctx.lastStepAngle)) * SCAN_ANGLE_PENALTY_WEIGHT;
+            double clearanceBonus = computeBankClearanceBonus(img, ctx, candidate.x, candidate.y, angle, tolSq);
+            double totalScore = Math.max(0.0, farColorScore + anglePenalty - clearanceBonus);
 
             if (totalScore < minScore) {
                 minScore = totalScore;
@@ -660,100 +718,73 @@ public class RiverTracingEngine {
         return bestPoint != null ? new ScanResult(bestPoint, bestAngleFound) : null;
     }
 
-    private ScanResult scanBridge(BufferedImage img, List<Point> path, TracingContext ctx) {
+    private int countObstaclePixels(BufferedImage img, TracingContext ctx, double angle, int bridgeRadius, double tolSq) {
         Point center = ctx.current;
-        int bridgeRadius = (int) Math.round(options.getStepSize() * BRIDGE_SCAN_STEP_MULTIPLIER);
-        int verifyRadius = bridgeRadius + Math.max(5, options.getStepSize() / 2);
-        int maxObstacleSpan = (int) Math.round(options.getStepSize() * 1.7);
-        double tol = options.getColorTolerance() * BRIDGE_SCAN_TOLERANCE_MULTIPLIER;
-        double tolSq = tol * tol;
-        double maxJumpSq = options.getMaxJump() * options.getMaxJump();
-        double maxTurnRad = Math.toRadians(options.getMaxAngle());
-        double scanArc = Math.min(SCAN_ARC_BRIDGE, maxTurnRad);
-        int targetColor = ctx.adaptiveTargetColor;
         int w = img.getWidth();
         int h = img.getHeight();
-
-        Point bestPoint = null;
-        double minScore = Double.MAX_VALUE;
-        double bestAngleFound = ctx.lastStepAngle;
-
-        for (double angle = ctx.lastStepAngle - scanArc; angle <= ctx.lastStepAngle + scanArc; angle += SCAN_ANGLE_STEP) {
-            int nx = (int) Math.round(center.x + Math.cos(angle) * bridgeRadius);
-            int ny = (int) Math.round(center.y + Math.sin(angle) * bridgeRadius);
-            int vx = (int) Math.round(center.x + Math.cos(angle) * verifyRadius);
-            int vy = (int) Math.round(center.y + Math.sin(angle) * verifyRadius);
-
-            if (!isValidPoint(nx, ny, w, h) || !isValidPoint(vx, vy, w, h)) continue;
-
-            Point candidate = new Point(nx, ny);
-            if (isBacktracking(path, center, candidate)) continue;
-
-            int obstaclePixels = 0;
-            for (int r = 2; r < bridgeRadius; r += 2) {
-                int rx = (int) Math.round(center.x + Math.cos(angle) * r);
-                int ry = (int) Math.round(center.y + Math.sin(angle) * r);
-                if (!isValidPoint(rx, ry, w, h) || colorDistanceSq(targetColor, sampleColor(img, rx, ry, w, h)) >= tolSq) {
-                    obstaclePixels += 2;
-                }
-            }
-            if (obstaclePixels > maxObstacleSpan) continue;
-
-            int c1 = sampleColor(img, nx, ny, w, h);
-            int c2 = sampleColor(img, vx, vy, w, h);
-            double d1Sq = colorDistanceSq(targetColor, c1);
-            double d2Sq = colorDistanceSq(targetColor, c2);
-
-            if (d1Sq < tolSq && d2Sq < tolSq
-                    && colorDistanceSq(ctx.initialColor, c1) < maxJumpSq
-                    && colorDistanceSq(ctx.initialColor, c2) < maxJumpSq) {
-                double colorScore = 0.6 * Math.sqrt(d1Sq) + 0.4 * Math.sqrt(d2Sq);
-                double anglePenalty = Math.abs(normalizeAngle(angle - ctx.lastStepAngle)) * SCAN_ANGLE_PENALTY_WEIGHT;
-                double clearanceBonus = computeBankClearanceBonus(img, nx, ny, angle, targetColor, tolSq, w, h, ctx.estimatedHalfWidth);
-                double totalScore = Math.max(0.0, colorScore + anglePenalty - clearanceBonus);
-
-                if (totalScore < minScore) {
-                    minScore = totalScore;
-                    bestPoint = candidate;
-                    bestAngleFound = angle;
-                }
+        int obstaclePixels = 0;
+        for (int r = 2; r < bridgeRadius; r += 2) {
+            if (sampleRayDistanceDiffSq(img, center, angle, r, ctx.adaptiveTargetColor, w, h) >= tolSq) {
+                obstaclePixels += 2;
             }
         }
-
-        return bestPoint != null ? new ScanResult(bestPoint, bestAngleFound) : null;
+        return obstaclePixels;
     }
 
-    private double computeBankClearanceBonus(BufferedImage img, int x, int y, double angle, int targetColor, double toleranceSq, int w, int h, double estimatedHalfWidth) {
+    private double evaluateBridgeFarSide(BufferedImage img, TracingContext ctx, double angle, int bridgeRadius, int verifyRadius, double tolSq) {
+        Point center = ctx.current;
+        int w = img.getWidth();
+        int h = img.getHeight();
+        int nx = (int) Math.round(center.x + Math.cos(angle) * bridgeRadius);
+        int ny = (int) Math.round(center.y + Math.sin(angle) * bridgeRadius);
+        int vx = (int) Math.round(center.x + Math.cos(angle) * verifyRadius);
+        int vy = (int) Math.round(center.y + Math.sin(angle) * verifyRadius);
+        if (!isValidPoint(nx, ny, w, h) || !isValidPoint(vx, vy, w, h)) {
+            return Double.POSITIVE_INFINITY;
+        }
+
+        int c1 = sampleColor(img, nx, ny, w, h);
+        int c2 = sampleColor(img, vx, vy, w, h);
+        double d1Sq = colorDistanceSq(ctx.adaptiveTargetColor, c1);
+        double d2Sq = colorDistanceSq(ctx.adaptiveTargetColor, c2);
+        double maxJumpSq = options.getMaxJump() * options.getMaxJump();
+
+        if (d1Sq >= tolSq || d2Sq >= tolSq
+                || colorDistanceSq(ctx.initialColor, c1) >= maxJumpSq
+                || colorDistanceSq(ctx.initialColor, c2) >= maxJumpSq) {
+            return Double.POSITIVE_INFINITY;
+        }
+        return 0.6 * Math.sqrt(d1Sq) + 0.4 * Math.sqrt(d2Sq);
+    }
+
+    private double computeBankClearanceBonus(BufferedImage img, TracingContext ctx, int x, int y, double angle, double toleranceSq) {
         double perpAngle = angle + Math.PI / 2.0;
+        double hw = ctx.estimatedHalfWidth;
+        int targetColor = ctx.adaptiveTargetColor;
+        int innerDist = hw > 0 ? Math.max(2, Math.min(6, (int) Math.round(hw * 0.4))) : 3;
+        int outerDist = hw > 4 ? Math.max(4, Math.min(12, (int) Math.round(hw * 0.75))) : 0;
+
         double bonus = 0.0;
-        int innerDist = estimatedHalfWidth > 0 ? Math.max(2, Math.min(6, (int) Math.round(estimatedHalfWidth * 0.4))) : 3;
-        int outerDist = estimatedHalfWidth > 4 ? Math.max(4, Math.min(12, (int) Math.round(estimatedHalfWidth * 0.75))) : 0;
-
-        int lx = (int) Math.round(x + Math.cos(perpAngle) * innerDist);
-        int ly = (int) Math.round(y + Math.sin(perpAngle) * innerDist);
-        if (isValidPoint(lx, ly, w, h) && colorDistanceSq(targetColor, sampleColor(img, lx, ly, w, h)) < toleranceSq) {
+        if (hasWaterAtOffset(img, x, y, perpAngle, innerDist, targetColor, toleranceSq)) {
             bonus += 2.0;
         }
-
-        int rx = (int) Math.round(x - Math.cos(perpAngle) * innerDist);
-        int ry = (int) Math.round(y - Math.sin(perpAngle) * innerDist);
-        if (isValidPoint(rx, ry, w, h) && colorDistanceSq(targetColor, sampleColor(img, rx, ry, w, h)) < toleranceSq) {
+        if (hasWaterAtOffset(img, x, y, perpAngle, -innerDist, targetColor, toleranceSq)) {
             bonus += 2.0;
         }
-
-        if (outerDist > innerDist) {
-            int olx = (int) Math.round(x + Math.cos(perpAngle) * outerDist);
-            int oly = (int) Math.round(y + Math.sin(perpAngle) * outerDist);
-            int orx = (int) Math.round(x - Math.cos(perpAngle) * outerDist);
-            int ory = (int) Math.round(y - Math.sin(perpAngle) * outerDist);
-            if (isValidPoint(olx, oly, w, h) && isValidPoint(orx, ory, w, h)
-                    && colorDistanceSq(targetColor, sampleColor(img, olx, oly, w, h)) < toleranceSq
-                    && colorDistanceSq(targetColor, sampleColor(img, orx, ory, w, h)) < toleranceSq) {
-                bonus += 2.0;
-            }
+        if (outerDist > innerDist
+                && hasWaterAtOffset(img, x, y, perpAngle, outerDist, targetColor, toleranceSq)
+                && hasWaterAtOffset(img, x, y, perpAngle, -outerDist, targetColor, toleranceSq)) {
+            bonus += 2.0;
         }
-
         return bonus;
+    }
+
+    private boolean hasWaterAtOffset(BufferedImage img, int x, int y, double perpAngle, int offset, int targetColor, double toleranceSq) {
+        int ox = (int) Math.round(x + Math.cos(perpAngle) * offset);
+        int oy = (int) Math.round(y + Math.sin(perpAngle) * offset);
+        int w = img.getWidth();
+        int h = img.getHeight();
+        return isValidPoint(ox, oy, w, h) && colorDistanceSq(targetColor, sampleColor(img, ox, oy, w, h)) < toleranceSq;
     }
 
     private double estimateInitialHalfWidth(BufferedImage img, Point p, double angle, int target, int w, int h) {
@@ -764,7 +795,7 @@ public class RiverTracingEngine {
         if (leftLimit >= scanDist - 1 || rightLimit >= scanDist - 1) {
             return -1.0;
         }
-        return Math.max(1.0, (leftLimit + rightLimit) / 2.0);
+        return Math.max(1.0, ((double) leftLimit + rightLimit) / 2.0);
     }
 
     private int measureBankDistance(BufferedImage img, Point p, double dirAngle, int target, int scanDist, int w, int h) {
@@ -799,25 +830,36 @@ public class RiverTracingEngine {
 
         if (leftLimit >= scanDist - 1 && rightLimit >= scanDist - 1) return p;
 
-        if (ctx != null && ctx.estimatedHalfWidth > 0) {
-            double maxAllowed = Math.max(ctx.estimatedHalfWidth * 2.2, ctx.estimatedHalfWidth + options.getStepSize());
-            if (leftLimit > maxAllowed && rightLimit <= maxAllowed) {
-                leftLimit = (int) Math.round(Math.min(leftLimit, Math.max(rightLimit, ctx.estimatedHalfWidth * 1.4)));
-            } else if (rightLimit > maxAllowed && leftLimit <= maxAllowed) {
-                rightLimit = (int) Math.round(Math.min(rightLimit, Math.max(leftLimit, ctx.estimatedHalfWidth * 1.4)));
-            }
+        if (ctx != null) {
+            leftLimit = clampBankBlowout(leftLimit, rightLimit, ctx.estimatedHalfWidth);
+            rightLimit = clampBankBlowout(rightLimit, leftLimit, ctx.estimatedHalfWidth);
+            updateEstimatedWidth(ctx, leftLimit, rightLimit, scanDist);
         }
 
-        if (ctx != null && leftLimit < scanDist - 1 && rightLimit < scanDist - 1) {
-            double observedHalfWidth = Math.max(1.0, (leftLimit + rightLimit) / 2.0);
-            if (ctx.estimatedHalfWidth <= 0) {
-                ctx.estimatedHalfWidth = observedHalfWidth;
-            } else {
-                ctx.estimatedHalfWidth = ctx.estimatedHalfWidth * 0.8 + observedHalfWidth * 0.2;
-            }
-        }
+        double targetShift = ((double) leftLimit - rightLimit) / 2.0;
+        return findCenteredWaterPoint(img, p, perpAngle, targetShift, target, w, h);
+    }
 
-        double targetShift = (leftLimit - rightLimit) / 2.0;
+    private int clampBankBlowout(int primaryLimit, int oppositeLimit, double estimatedHalfWidth) {
+        if (estimatedHalfWidth <= 0) return primaryLimit;
+        double maxAllowed = Math.max(estimatedHalfWidth * 2.2, estimatedHalfWidth + options.getStepSize());
+        if (primaryLimit > maxAllowed && oppositeLimit <= maxAllowed) {
+            return (int) Math.round(Math.min(primaryLimit, Math.max(oppositeLimit, estimatedHalfWidth * 1.4)));
+        }
+        return primaryLimit;
+    }
+
+    private void updateEstimatedWidth(TracingContext ctx, int leftLimit, int rightLimit, int scanDist) {
+        if (leftLimit >= scanDist - 1 || rightLimit >= scanDist - 1) return;
+        double observedHalfWidth = Math.max(1.0, ((double) leftLimit + rightLimit) / 2.0);
+        if (ctx.estimatedHalfWidth <= 0) {
+            ctx.estimatedHalfWidth = observedHalfWidth;
+        } else {
+            ctx.estimatedHalfWidth = ctx.estimatedHalfWidth * 0.8 + observedHalfWidth * 0.2;
+        }
+    }
+
+    private Point findCenteredWaterPoint(BufferedImage img, Point p, double perpAngle, double targetShift, int target, int w, int h) {
         int maxSearchOffset = (int) Math.ceil(Math.abs(targetShift));
         for (int delta = 0; delta <= maxSearchOffset; delta++) {
             double shift = targetShift >= 0 ? Math.max(0.0, targetShift - delta) : Math.min(0.0, targetShift + delta);
@@ -827,7 +869,6 @@ public class RiverTracingEngine {
                 return new Point(cx, cy);
             }
         }
-
         return p;
     }
 
@@ -891,6 +932,20 @@ public class RiverTracingEngine {
         ScanResult(Point p, double a) {
             this.point = p;
             this.angle = a;
+        }
+    }
+
+    private static class RayProbe {
+        final Point endpoint;
+        final int reachedR;
+        final double endDiffSq;
+        final double meanRayDiff;
+
+        RayProbe(Point endpoint, int reachedR, double endDiffSq, double meanRayDiff) {
+            this.endpoint = endpoint;
+            this.reachedR = reachedR;
+            this.endDiffSq = endDiffSq;
+            this.meanRayDiff = meanRayDiff;
         }
     }
 
