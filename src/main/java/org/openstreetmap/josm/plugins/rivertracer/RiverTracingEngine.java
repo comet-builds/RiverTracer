@@ -394,13 +394,13 @@ public class RiverTracingEngine {
                 continue;
             }
             Point inter = computeLineIntersection(current, next, l);
-            if (inter == null) continue;
-
-            inter = snapIntersectionToEndpoint(inter, l, endSnapThresholdSq);
-            double dSq = current.distanceSq(inter);
-            if (dSq < minDistSq) {
-                minDistSq = dSq;
-                bestJoinPoint = inter;
+            if (inter != null) {
+                inter = snapIntersectionToEndpoint(inter, l, endSnapThresholdSq);
+                double dSq = current.distanceSq(inter);
+                if (dSq < minDistSq) {
+                    minDistSq = dSq;
+                    bestJoinPoint = inter;
+                }
             }
         }
 
@@ -457,11 +457,7 @@ public class RiverTracingEngine {
         }
 
         double currentDistSq = candDx * candDx + candDy * candDy;
-        if (pathSize <= 2 && nextDistSq >= currentDistSq * 0.85) {
-            return false;
-        }
-
-        return true;
+        return pathSize > 2 || nextDistSq < currentDistSq * 0.85;
     }
 
     private Point getProjectedPoint(Line2D l, Point p) {
@@ -597,15 +593,13 @@ public class RiverTracingEngine {
             double allowedTolSq = isSharpRay ? sharpTolSq : baseTolSq;
 
             RayProbe probe = traceChannelRay(img, ctx, angle, fullStep, allowedTolSq);
-            if (probe.reachedR < minStep || probe.endDiffSq >= allowedTolSq || isBacktracking(path, ctx.current, probe.endpoint)) {
-                continue;
-            }
-
-            double totalScore = scoreChannelRay(img, ctx, probe, angle, smoothDiff, isSharpRay, allowedTolSq);
-            if (totalScore < minScore) {
-                minScore = totalScore;
-                bestPoint = probe.endpoint;
-                bestAngleFound = angle;
+            if (probe.reachedR >= minStep && probe.endDiffSq < allowedTolSq && !isBacktracking(path, ctx.current, probe.endpoint)) {
+                double totalScore = scoreChannelRay(img, ctx, probe, angle, smoothDiff, isSharpRay, allowedTolSq);
+                if (totalScore < minScore) {
+                    minScore = totalScore;
+                    bestPoint = probe.endpoint;
+                    bestAngleFound = angle;
+                }
             }
         }
 
@@ -627,12 +621,7 @@ public class RiverTracingEngine {
         double endDiffSq = Double.MAX_VALUE;
 
         for (int r = 2; r <= fullStep; r += 2) {
-            int rx = (int) Math.round(center.x + Math.cos(angle) * r);
-            int ry = (int) Math.round(center.y + Math.sin(angle) * r);
-            if (!isValidPoint(rx, ry, w, h)) {
-                break;
-            }
-            double rDiffSq = colorDistanceSq(targetColor, sampleColor(img, rx, ry, w, h));
+            double rDiffSq = sampleRayDistanceDiffSq(img, center, angle, r, targetColor, w, h);
             if (rDiffSq >= allowedTolSq * 1.2) {
                 break;
             }
@@ -700,18 +689,16 @@ public class RiverTracingEngine {
             }
 
             double farColorScore = evaluateBridgeFarSide(img, ctx, angle, bridgeRadius, verifyRadius, tolSq);
-            if (Double.isInfinite(farColorScore)) {
-                continue;
-            }
+            if (!Double.isInfinite(farColorScore)) {
+                double anglePenalty = Math.abs(normalizeAngle(angle - ctx.lastStepAngle)) * SCAN_ANGLE_PENALTY_WEIGHT;
+                double clearanceBonus = computeBankClearanceBonus(img, ctx, candidate.x, candidate.y, angle, tolSq);
+                double totalScore = Math.max(0.0, farColorScore + anglePenalty - clearanceBonus);
 
-            double anglePenalty = Math.abs(normalizeAngle(angle - ctx.lastStepAngle)) * SCAN_ANGLE_PENALTY_WEIGHT;
-            double clearanceBonus = computeBankClearanceBonus(img, ctx, candidate.x, candidate.y, angle, tolSq);
-            double totalScore = Math.max(0.0, farColorScore + anglePenalty - clearanceBonus);
-
-            if (totalScore < minScore) {
-                minScore = totalScore;
-                bestPoint = candidate;
-                bestAngleFound = angle;
+                if (totalScore < minScore) {
+                    minScore = totalScore;
+                    bestPoint = candidate;
+                    bestAngleFound = angle;
+                }
             }
         }
 
@@ -805,21 +792,21 @@ public class RiverTracingEngine {
             int nx = (int) Math.round(p.x + Math.cos(dirAngle) * r);
             int ny = (int) Math.round(p.y + Math.sin(dirAngle) * r);
             if (!isColorMatch(img, nx, ny, target, w, h)) {
-                if (glitchesSkipped < 1 && r + 1 < scanDist) {
-                    int nextX = (int) Math.round(p.x + Math.cos(dirAngle) * (r + 1));
-                    int nextY = (int) Math.round(p.y + Math.sin(dirAngle) * (r + 1));
-                    if (isColorMatch(img, nextX, nextY, target, w, h)) {
-                        glitchesSkipped++;
-                        limit = r;
-                        continue;
-                    }
+                if (glitchesSkipped >= 1 || r + 1 >= scanDist || !isRayPointMatch(img, p, dirAngle, r + 1, target, w, h)) {
+                    limit = r;
+                    break;
                 }
-                limit = r;
-                break;
+                glitchesSkipped++;
             }
             limit = r;
         }
         return limit;
+    }
+
+    private boolean isRayPointMatch(BufferedImage img, Point p, double dirAngle, int r, int target, int w, int h) {
+        int nextX = (int) Math.round(p.x + Math.cos(dirAngle) * r);
+        int nextY = (int) Math.round(p.y + Math.sin(dirAngle) * r);
+        return isColorMatch(img, nextX, nextY, target, w, h);
     }
 
     private Point adjustToCenter(BufferedImage img, Point p, double angle, int target, int w, int h, TracingContext ctx) {
