@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.function.Consumer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
@@ -21,6 +22,7 @@ import org.openstreetmap.josm.data.osm.Node;
 import org.openstreetmap.josm.data.osm.Way;
 import org.openstreetmap.josm.gui.MainApplication;
 import org.openstreetmap.josm.gui.MapView;
+import org.openstreetmap.josm.gui.layer.Layer;
 import org.openstreetmap.josm.tools.Logging;
 
 /**
@@ -28,9 +30,13 @@ import org.openstreetmap.josm.tools.Logging;
  */
 public class RiverTraceController {
 
+    private static final int GHOST_DEBOUNCE_MS = 80;
+    private static final long TILE_SETTLE_REFRESH_MS = 1500L;
+
     private final RiverTracerPreferences preferences;
     private final List<Point> ghostPath = Collections.synchronizedList(new ArrayList<>());
     private final Timer debounceTimer;
+    private final AtomicLong ghostRequestId = new AtomicLong();
     private final ExecutorService traceExecutor = Executors.newFixedThreadPool(2, runnable -> {
         Thread t = new Thread(runnable);
         t.setDaemon(true);
@@ -41,13 +47,16 @@ public class RiverTraceController {
     private BufferedImage cachedSnapshot;
     private EastNorth cachedCenter;
     private double cachedScale;
+    private int cachedLayersHash;
+    private long cachedTimestamp;
+    private boolean tileRefreshDone;
     
     private Point lastMousePoint;
     private MapView lastMapView;
 
     public RiverTraceController() {
         this.preferences = new RiverTracerPreferences();
-        this.debounceTimer = new Timer(250, e -> performGhostTrace());
+        this.debounceTimer = new Timer(GHOST_DEBOUNCE_MS, e -> performGhostTrace());
         this.debounceTimer.setRepeats(false);
     }
 
@@ -62,6 +71,7 @@ public class RiverTraceController {
     }
 
     public void resetGhostTrace() {
+        this.ghostRequestId.incrementAndGet();
         this.ghostPath.clear();
         this.lastMapView = null;
         this.lastMousePoint = null;
@@ -81,9 +91,10 @@ public class RiverTraceController {
         final MapView capturedMapView = lastMapView;
 
         if (capturedMousePoint == null || capturedMapView == null) return;
+        final long requestId = ghostRequestId.incrementAndGet();
 
-        executeTrace(capturedMousePoint, capturedMapView, (fullPath) -> {
-            if (this.lastMapView != capturedMapView) return;
+        executeTrace(capturedMousePoint, capturedMapView, requestId, (fullPath) -> {
+            if (this.lastMapView != capturedMapView || ghostRequestId.get() != requestId) return;
 
             synchronized(ghostPath) {
                 ghostPath.clear();
@@ -97,13 +108,13 @@ public class RiverTraceController {
      * Executes the final trace and adds the result to the JOSM dataset.
      */
     public void startTrace(Point start, MapView mv) {
-        executeTrace(start, mv, (fullPath) -> {
+        executeTrace(start, mv, 0L, (fullPath) -> {
             if (fullPath.size() < 2) return;
             new OsmWayBuilder().buildWay(fullPath, mv, preferences.getOptions());
         });
     }
 
-    private void executeTrace(Point start, MapView mv, Consumer<List<Point>> onSuccess) {
+    private void executeTrace(Point start, MapView mv, long expectedGhostId, Consumer<List<Point>> onSuccess) {
         updateCacheIfNeeded(mv);
         if (cachedSnapshot == null) return;
 
@@ -116,6 +127,9 @@ public class RiverTraceController {
 
         traceExecutor.submit(() -> {
             try {
+                if (expectedGhostId != 0L && ghostRequestId.get() != expectedGhostId) {
+                    return;
+                }
                 RiverTracingEngine engine = new RiverTracingEngine(options);
                 List<Point> fullPath = engine.trace(snapshot, start, waterways);
 
@@ -134,12 +148,40 @@ public class RiverTraceController {
     private void updateCacheIfNeeded(MapView mv) {
         EastNorth currentCenter = mv.getCenter();
         double currentScale = mv.getScale();
+        int currentLayersHash = computeVisibleLayersHash(mv);
+        long now = System.currentTimeMillis();
 
-        if (cachedSnapshot == null || !currentCenter.equals(cachedCenter) || Math.abs(currentScale - cachedScale) > 1e-6) {
+        boolean viewportChanged = cachedSnapshot == null
+            || !currentCenter.equals(cachedCenter)
+            || Math.abs(currentScale - cachedScale) > 1e-6
+            || currentLayersHash != cachedLayersHash
+            || cachedSnapshot.getWidth() != mv.getWidth()
+            || cachedSnapshot.getHeight() != mv.getHeight();
+
+        boolean settleRefreshDue = !tileRefreshDone && (now - cachedTimestamp >= TILE_SETTLE_REFRESH_MS);
+
+        if (viewportChanged || settleRefreshDue) {
             cachedSnapshot = ImageUtils.getMapSnapshot(mv);
             cachedCenter = currentCenter;
             cachedScale = currentScale;
+            cachedLayersHash = currentLayersHash;
+            if (viewportChanged) {
+                cachedTimestamp = now;
+                tileRefreshDone = false;
+            } else {
+                tileRefreshDone = true;
+            }
         }
+    }
+
+    private int computeVisibleLayersHash(MapView mv) {
+        if (mv.getLayerManager() == null) return 0;
+        int hash = 1;
+        for (Layer layer : mv.getLayerManager().getVisibleLayersInZOrder()) {
+            hash = 31 * hash + System.identityHashCode(layer);
+            hash = 31 * hash + Double.hashCode(layer.getOpacity());
+        }
+        return hash;
     }
 
     private List<Line2D> getWaterwaySegments(MapView mv) {

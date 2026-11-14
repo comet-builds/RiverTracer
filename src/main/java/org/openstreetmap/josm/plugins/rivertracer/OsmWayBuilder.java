@@ -7,7 +7,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
+import java.util.stream.Collectors;
 
 import org.openstreetmap.josm.command.AddCommand;
 import org.openstreetmap.josm.command.ChangeCommand;
@@ -15,6 +15,7 @@ import org.openstreetmap.josm.command.Command;
 import org.openstreetmap.josm.command.DeleteCommand;
 import org.openstreetmap.josm.command.SequenceCommand;
 import org.openstreetmap.josm.data.UndoRedoHandler;
+import org.openstreetmap.josm.data.coor.EastNorth;
 import org.openstreetmap.josm.data.coor.LatLon;
 import org.openstreetmap.josm.data.osm.BBox;
 import org.openstreetmap.josm.data.osm.DataSet;
@@ -22,6 +23,8 @@ import org.openstreetmap.josm.data.osm.Node;
 import org.openstreetmap.josm.data.osm.TagCollection;
 import org.openstreetmap.josm.data.osm.Way;
 import org.openstreetmap.josm.data.osm.WaySegment;
+import org.openstreetmap.josm.data.projection.Projection;
+import org.openstreetmap.josm.data.projection.ProjectionRegistry;
 import org.openstreetmap.josm.gui.MainApplication;
 import org.openstreetmap.josm.gui.MapView;
 import org.openstreetmap.josm.gui.conflict.tags.CombinePrimitiveResolverDialog;
@@ -34,6 +37,7 @@ import org.openstreetmap.josm.tools.UserCancelException;
 public class OsmWayBuilder {
 
     private static final double SNAP_DISTANCE_METERS = 15.0;
+    private static final double JOIN_DISTANCE_MULTIPLIER = 1.5;
     private static final double SEARCH_PADDING_DEG = 0.001;
     private static final String TAG_WATERWAY = "waterway";
 
@@ -61,21 +65,23 @@ public class OsmWayBuilder {
 
         LatLon startLL = mv.getLatLon(path.get(0).x, path.get(0).y);
         LatLon endLL = mv.getLatLon(path.get(path.size() - 1).x, path.get(path.size() - 1).y);
+        double snapDistMeters = computeSnapDistanceMeters(mv, options, startLL);
 
-        ConnectionInfo startConn = analyzeConnection(ds, startLL);
-        ConnectionInfo endConn = analyzeConnection(ds, endLL);
+        ConnectionInfo startConn = analyzeConnection(ds, startLL, snapDistMeters, options);
+        ConnectionInfo endConn = analyzeConnection(ds, endLL, snapDistMeters, options);
 
         List<Command> cmds = new ArrayList<>();
 
         try {
+            boolean sameWayLoop = startConn.way != null && startConn.way == endConn.way;
             if (canMergeBoth(startConn, endConn)) {
                 mergeBoth(ds, startConn, endConn, path, mv, cmds);
-            } else if (canMerge(startConn)) {
-                mergeOne(ds, startConn, path, mv, cmds, true);
-            } else if (canMerge(endConn)) {
-                mergeOne(ds, endConn, path, mv, cmds, false);
+            } else if (!sameWayLoop && canMerge(startConn)) {
+                mergeOne(ds, startConn, path, mv, cmds, true, snapDistMeters);
+            } else if (!sameWayLoop && canMerge(endConn)) {
+                mergeOne(ds, endConn, path, mv, cmds, false, snapDistMeters);
             } else {
-                createFreshWay(ds, path, mv, cmds, options, startConn, endConn);
+                createFreshWay(ds, path, mv, cmds, options, startConn, endConn, snapDistMeters);
             }
 
             if (!cmds.isEmpty()) {
@@ -90,24 +96,28 @@ public class OsmWayBuilder {
         }
     }
 
-    private ConnectionInfo analyzeConnection(DataSet ds, LatLon ll) {
+    private ConnectionInfo analyzeConnection(DataSet ds, LatLon ll, double snapDistMeters, RiverTracingOptions options) {
         ConnectionInfo info = new ConnectionInfo();
-        info.node = findSnapNode(ds, ll);
+        info.node = findSnapNode(ds, ll, snapDistMeters);
 
         if (info.node != null) {
-            Optional<Way> foundWay = info.node.getParentWays().stream()
-                .filter(w -> !w.isDeleted() && w.hasKey(TAG_WATERWAY))
-                .filter(w -> w.getNode(0) == info.node || w.getNode(w.getNodesCount() - 1) == info.node)
-                .findFirst();
+            List<Way> parentWaterways = info.node.getParentWays().stream()
+                .filter(w -> !w.isDeleted() && w.hasKey(TAG_WATERWAY) && w.getNodesCount() > 1 && !w.isClosed())
+                .collect(Collectors.toList());
 
-            foundWay.ifPresent(w -> {
-                info.way = w;
-                if (w.getNode(0) == info.node) {
-                    info.isStart = true;
-                } else {
-                    info.isEnd = true;
+            String expectedType = options.isRiver() ? "river" : "stream";
+            if (parentWaterways.size() == 1) {
+                Way w = parentWaterways.get(0);
+                if (expectedType.equals(w.get(TAG_WATERWAY))
+                        && (w.getNode(0) == info.node || w.getNode(w.getNodesCount() - 1) == info.node)) {
+                    info.way = w;
+                    if (w.getNode(0) == info.node) {
+                        info.isStart = true;
+                    } else {
+                        info.isEnd = true;
+                    }
                 }
-            });
+            }
         }
         return info;
     }
@@ -124,12 +134,15 @@ public class OsmWayBuilder {
         return (start.isEnd && end.isStart) || (start.isStart && end.isEnd);
     }
 
-    private void mergeOne(DataSet ds, ConnectionInfo conn, List<Point> path, MapView mv, List<Command> cmds, boolean isStartConn) {
+    private void mergeOne(DataSet ds, ConnectionInfo conn, List<Point> path, MapView mv, List<Command> cmds, boolean isStartConn, double snapDistMeters) {
         Way targetWay = conn.way;
 
         int otherEndIndex = isStartConn ? path.size() - 1 : 0;
         LatLon ll = mv.getLatLon(path.get(otherEndIndex).x, path.get(otherEndIndex).y);
-        Node otherEndSnap = snapPoint(ds, ll, cmds);
+        Node otherEndSnap = snapPoint(ds, ll, cmds, snapDistMeters);
+        if (targetWay.containsNode(otherEndSnap)) {
+            return;
+        }
 
         List<Node> segmentNodes = generateSegmentNodes(ds, path, mv, cmds,
             isStartConn ? conn.node : otherEndSnap,
@@ -199,11 +212,14 @@ public class OsmWayBuilder {
         cmds.add(new DeleteCommand(deleteWay));
     }
 
-    private void createFreshWay(DataSet ds, List<Point> path, MapView mv, List<Command> cmds, RiverTracingOptions options, ConnectionInfo startConn, ConnectionInfo endConn) {
-        Node startNode = (startConn.isValid()) ? startConn.node : snapPoint(ds, mv.getLatLon(path.get(0).x, path.get(0).y), cmds);
-        Node endNode = (endConn.isValid()) ? endConn.node : snapPoint(ds, mv.getLatLon(path.get(path.size()-1).x, path.get(path.size()-1).y), cmds);
+    private void createFreshWay(DataSet ds, List<Point> path, MapView mv, List<Command> cmds, RiverTracingOptions options, ConnectionInfo startConn, ConnectionInfo endConn, double snapDistMeters) {
+        Node startNode = (startConn.isValid()) ? startConn.node : snapPoint(ds, mv.getLatLon(path.get(0).x, path.get(0).y), cmds, snapDistMeters);
+        Node endNode = (endConn.isValid()) ? endConn.node : snapPoint(ds, mv.getLatLon(path.get(path.size()-1).x, path.get(path.size()-1).y), cmds, snapDistMeters);
 
         List<Node> nodes = generateSegmentNodes(ds, path, mv, cmds, startNode, endNode);
+        if (nodes.size() < 2 || (startNode == endNode && nodes.size() < 3)) {
+            return;
+        }
 
         Way w = new Way();
         w.setNodes(nodes);
@@ -219,12 +235,25 @@ public class OsmWayBuilder {
 
     // --- Helper Methods ---
 
-    private BBox createSearchBox(LatLon ll) {
+    private double computeSnapDistanceMeters(MapView mv, RiverTracingOptions options, LatLon refLL) {
+        Point p = mv.getPoint(refLL);
+        int joinPixels = (int) Math.ceil(JOIN_DISTANCE_MULTIPLIER * options.getStepSize());
+        LatLon offsetLL = mv.getLatLon(p.x + joinPixels, p.y);
+        double pixelSnapMeters = refLL.greatCircleDistance(offsetLL);
+        return Math.max(SNAP_DISTANCE_METERS, pixelSnapMeters);
+    }
+
+    private double computeSearchPaddingDeg(double snapDistMeters) {
+        return Math.max(SEARCH_PADDING_DEG, (snapDistMeters / 111000.0) * 2.5);
+    }
+
+    private BBox createSearchBox(LatLon ll, double snapDistMeters) {
+        double pad = computeSearchPaddingDeg(snapDistMeters);
         return new BBox(
-            ll.getX() - SEARCH_PADDING_DEG,
-            ll.getY() - SEARCH_PADDING_DEG,
-            ll.getX() + SEARCH_PADDING_DEG,
-            ll.getY() + SEARCH_PADDING_DEG
+            ll.getX() - pad,
+            ll.getY() - pad,
+            ll.getX() + pad,
+            ll.getY() + pad
         );
     }
 
@@ -235,21 +264,26 @@ public class OsmWayBuilder {
         for (int i = 1; i < path.size() - 1; i++) {
             Point p = path.get(i);
             LatLon ll = mv.getLatLon(p.x, p.y);
+            if (startNode.getCoor().greatCircleDistance(ll) < 0.25 || endNode.getCoor().greatCircleDistance(ll) < 0.25) {
+                continue;
+            }
             nodes.add(createNewNode(ds, ll, cmds));
         }
 
-        nodes.add(endNode);
+        if (nodes.get(nodes.size() - 1) != endNode) {
+            nodes.add(endNode);
+        }
         return nodes;
     }
 
-    private Node snapPoint(DataSet ds, LatLon ll, List<Command> cmds) {
-        Node snapNode = findSnapNode(ds, ll);
+    private Node snapPoint(DataSet ds, LatLon ll, List<Command> cmds, double snapDistMeters) {
+        Node snapNode = findSnapNode(ds, ll, snapDistMeters);
         
         if (snapNode != null) {
             return snapNode;
         }
 
-        Node segmentNode = snapToSegment(ds, ll, cmds);
+        Node segmentNode = snapToSegment(ds, ll, cmds, snapDistMeters);
         if (segmentNode != null) {
             return segmentNode;
         } else {
@@ -272,8 +306,8 @@ public class OsmWayBuilder {
         return false;
     }
 
-    private Node findSnapNode(DataSet ds, LatLon ll) {
-        BBox searchBox = createSearchBox(ll);
+    private Node findSnapNode(DataSet ds, LatLon ll, double snapDistMeters) {
+        BBox searchBox = createSearchBox(ll, snapDistMeters);
         Collection<Node> candidates = ds.searchNodes(searchBox);
 
         Node bestNode = null;
@@ -282,7 +316,7 @@ public class OsmWayBuilder {
         for (Node n : candidates) {
             if (!n.isDeleted() && hasValidWaterwayParent(n)) {
                 double dist = n.getCoor().greatCircleDistance(ll);
-                if (dist < SNAP_DISTANCE_METERS && dist < minDist) {
+                if (dist < snapDistMeters && dist < minDist) {
                     minDist = dist;
                     bestNode = n;
                 }
@@ -297,15 +331,15 @@ public class OsmWayBuilder {
         double dist = Double.MAX_VALUE;
     }
 
-    private Node snapToSegment(DataSet ds, LatLon ll, List<Command> cmds) {
-        BBox searchBox = createSearchBox(ll);
+    private Node snapToSegment(DataSet ds, LatLon ll, List<Command> cmds, double snapDistMeters) {
+        BBox searchBox = createSearchBox(ll, snapDistMeters);
         Collection<Way> ways = ds.searchWays(searchBox);
 
         SegmentMatch bestMatch = new SegmentMatch();
 
         for (Way w : ways) {
             if (!w.isDeleted() && w.hasKey(TAG_WATERWAY)) {
-                updateBestSegmentMatch(w, ll, bestMatch);
+                updateBestSegmentMatch(w, ll, bestMatch, snapDistMeters);
             }
         }
 
@@ -322,13 +356,13 @@ public class OsmWayBuilder {
         return newNode;
     }
 
-    private void updateBestSegmentMatch(Way w, LatLon ll, SegmentMatch bestMatch) {
+    private void updateBestSegmentMatch(Way w, LatLon ll, SegmentMatch bestMatch, double snapDistMeters) {
         for (int i = 0; i < w.getNodesCount() - 1; i++) {
-            checkSegmentMatch(w, i, ll, bestMatch);
+            checkSegmentMatch(w, i, ll, bestMatch, snapDistMeters);
         }
     }
 
-    private void checkSegmentMatch(Way w, int i, LatLon ll, SegmentMatch bestMatch) {
+    private void checkSegmentMatch(Way w, int i, LatLon ll, SegmentMatch bestMatch, double snapDistMeters) {
         Node n1 = w.getNode(i);
         Node n2 = w.getNode(i + 1);
 
@@ -339,43 +373,44 @@ public class OsmWayBuilder {
         LatLon c1 = n1.getCoor();
         LatLon c2 = n2.getCoor();
 
-        if (!isWithinBoundingBox(c1, c2, ll)) {
+        if (!isWithinBoundingBox(c1, c2, ll, snapDistMeters)) {
             return;
         }
 
         LatLon proj = getClosestPointOnSegment(c1, c2, ll);
         double dist = proj.greatCircleDistance(ll);
 
-        if (dist < SNAP_DISTANCE_METERS && dist < bestMatch.dist) {
+        if (dist < snapDistMeters && dist < bestMatch.dist) {
             bestMatch.dist = dist;
             bestMatch.seg = new WaySegment(w, i);
             bestMatch.proj = proj;
         }
     }
 
-    private boolean isWithinBoundingBox(LatLon c1, LatLon c2, LatLon ll) {
+    private boolean isWithinBoundingBox(LatLon c1, LatLon c2, LatLon ll, double snapDistMeters) {
+        double pad = computeSearchPaddingDeg(snapDistMeters);
         double segMinLat = Math.min(c1.lat(), c2.lat());
         double segMaxLat = Math.max(c1.lat(), c2.lat());
         double segMinLon = Math.min(c1.lon(), c2.lon());
         double segMaxLon = Math.max(c1.lon(), c2.lon());
 
-        return !(segMaxLat < ll.lat() - SEARCH_PADDING_DEG || segMinLat > ll.lat() + SEARCH_PADDING_DEG ||
-                 segMaxLon < ll.lon() - SEARCH_PADDING_DEG || segMinLon > ll.lon() + SEARCH_PADDING_DEG);
+        return !(segMaxLat < ll.lat() - pad || segMinLat > ll.lat() + pad ||
+                 segMaxLon < ll.lon() - pad || segMinLon > ll.lon() + pad);
     }
 
     private LatLon getClosestPointOnSegment(LatLon p1, LatLon p2, LatLon p) {
-        double x1 = p1.lon();
-        double y1 = p1.lat();
-        double x2 = p2.lon();
-        double y2 = p2.lat();
-        double dx = x2 - x1;
-        double dy = y2 - y1;
+        Projection proj = ProjectionRegistry.getProjection();
+        EastNorth en1 = proj.latlon2eastNorth(p1);
+        EastNorth en2 = proj.latlon2eastNorth(p2);
+        EastNorth enP = proj.latlon2eastNorth(p);
 
+        double dx = en2.east() - en1.east();
+        double dy = en2.north() - en1.north();
         if (dx == 0 && dy == 0) return p1;
 
-        double t = ((p.lon() - x1) * dx + (p.lat() - y1) * dy) / (dx * dx + dy * dy);
-        t = Math.max(0, Math.min(1, t));
+        double t = ((enP.east() - en1.east()) * dx + (enP.north() - en1.north()) * dy) / (dx * dx + dy * dy);
+        t = Math.max(0.0, Math.min(1.0, t));
 
-        return new LatLon(y1 + t * dy, x1 + t * dx);
+        return proj.eastNorth2latlon(en1.interpolate(en2, t));
     }
 }
