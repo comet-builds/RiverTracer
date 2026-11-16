@@ -11,6 +11,7 @@ import java.util.stream.Collectors;
 
 import org.openstreetmap.josm.command.AddCommand;
 import org.openstreetmap.josm.command.ChangeCommand;
+import org.openstreetmap.josm.command.ChangeNodesCommand;
 import org.openstreetmap.josm.command.Command;
 import org.openstreetmap.josm.command.DeleteCommand;
 import org.openstreetmap.josm.command.SequenceCommand;
@@ -216,12 +217,8 @@ public class OsmWayBuilder {
             Collections.singleton(keepWay)
         );
 
+        cmds.add(new ChangeNodesCommand(keepWay, newNodes));
         cmds.addAll(resolution);
-
-        Way newWay = new Way(keepWay);
-        newWay.setNodes(newNodes);
-
-        cmds.add(new ChangeCommand(keepWay, newWay));
         cmds.add(new DeleteCommand(deleteWay));
     }
 
